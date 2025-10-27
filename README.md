@@ -8,9 +8,11 @@ All scripts were developed in an Rstudio server running in a Singularity contain
 
 # Analysis
 
-1. Stain deconvolution ()
-2. Segmentation (bin2cell)
-3. Cell type annotation (tacco OT)
+1. Stain deconvolution (using [`stain_deconvolution.py`](scripts/stain_deconvolution/stain_deconvolution.py))
+2. Segmentation (using [`bin2cell-workflow.py`](scripts/bin2cell/bin2cell-workflow.py))
+3. Generate single cell reference (using [`generate_sc_reference.py`](scripts/generate_sc_reference/generate_sc_reference.py))
+3. Cell type annotation (using [`tacco-annotate.py`](scripts/tacco/tacco-annotate.py))
+4. Rotate image data (using [`rotate-sample.py`](scripts/rotate_sample/rotate-sample.py))
 
 
 # Content

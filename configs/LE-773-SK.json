@@ -48,5 +48,15 @@
             "conda_env": "/homes/olymp/christoph.kaempf/.conda/envs/2024-kunz-spatial-r440",
             "output_dir": "/mnt/ribolution/tertiary_analysis/2024-kunz-melanom-visium-hd/tacco/LE-773-SK"
         }
+    },
+    "rotate-sample": {
+        "LE-773-SK": {
+            "anndata_files": {
+                "hema": "/mnt/ribolution/tertiary_analysis/2024-kunz-melanom-visium-hd/tacco/LE-773-SK/tacco-annotate-OT-LE-773-SK-hema.h5ad"
+            },
+            "output_dir": "/mnt/ribolution/tertiary_analysis/2024-kunz-melanom-visium-hd/tacco/LE-773-SK",
+            "image_id": "LE-773-SK",
+            "rotation_angle": "-90"
+        }
     }
 }
