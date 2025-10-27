@@ -1,33 +1,52 @@
 {
-    "LE-773-SK": {
-        "microscope_image_path": "/mnt/ribolution/secondary_analysis/2025_SpatSeq_VisiumHD/250627_VH00421_91_222CCLVNX/microscope_images/LE-773-SK_20x.tif",
-        "output_dir": "/mnt/ribolution/tertiary_analysis/2024-kunz-melanom-visium-hd/stain_deconvolution/",
-        "stain_matrices": {
-            "scikitimage_rgb_from_hed": [
-                [0.65, 0.7 , 0.29],
-                [0.07, 0.99, 0.11],
-                [0.27, 0.57, 0.78]
-            ]
-        }
-    }
-}{
-    "LE-773-SK-hema": {
-        "scale_image": true,
-        "visium_hd": {
-            "microscope_image_path": "/mnt/ribolution/tertiary_analysis/2024-kunz-melanom-visium-hd/stain_deconvolution/LE-773-SK/scikitimage_rgb_from_hed_hema.tiff",
-            "spaceranger_image_path": "/mnt/ribolution/secondary_analysis/2025_SpatSeq_VisiumHD/250627_VH00421_91_222CCLVNX/results/LE-773-SK/outs/spatial/",
-            "square_002um_path": "/mnt/ribolution/secondary_analysis/2025_SpatSeq_VisiumHD/250627_VH00421_91_222CCLVNX/results/LE-773-SK/outs/binned_outputs/square_002um/",
-            "output_dir": "/mnt/ribolution/tertiary_analysis/2024-kunz-melanom-visium-hd/bin2cell/"
-        }
-    }
-}{
-    "LE-773-SK-original": {
-        "scale_image": true,
-        "visium_hd": {
+    "stain_deconvolution": {
+        "LE-773-SK": {
             "microscope_image_path": "/mnt/ribolution/secondary_analysis/2025_SpatSeq_VisiumHD/250627_VH00421_91_222CCLVNX/microscope_images/LE-773-SK_20x.tif",
-            "spaceranger_image_path": "/mnt/ribolution/secondary_analysis/2025_SpatSeq_VisiumHD/250627_VH00421_91_222CCLVNX/results/LE-773-SK/outs/spatial/",
-            "square_002um_path": "/mnt/ribolution/secondary_analysis/2025_SpatSeq_VisiumHD/250627_VH00421_91_222CCLVNX/results/LE-773-SK/outs/binned_outputs/square_002um/",
-            "output_dir": "/mnt/ribolution/tertiary_analysis/2024-kunz-melanom-visium-hd/bin2cell/"
+            "output_dir": "/mnt/ribolution/tertiary_analysis/2024-kunz-melanom-visium-hd/stain_deconvolution/",
+            "stain_matrices": {
+                "scikitimage_rgb_from_hed": [
+                    [0.65, 0.7 , 0.29],
+                    [0.07, 0.99, 0.11],
+                    [0.27, 0.57, 0.78]
+                ]
+            }
+        }
+    },
+    "bin2cell": {
+        "LE-773-SK-hema": {
+            "scale_image": true,
+            "visium_hd": {
+                "microscope_image_path": "/mnt/ribolution/tertiary_analysis/2024-kunz-melanom-visium-hd/stain_deconvolution/LE-773-SK/scikitimage_rgb_from_hed_hema.tiff",
+                "spaceranger_image_path": "/mnt/ribolution/secondary_analysis/2025_SpatSeq_VisiumHD/250627_VH00421_91_222CCLVNX/results/LE-773-SK/outs/spatial/",
+                "square_002um_path": "/mnt/ribolution/secondary_analysis/2025_SpatSeq_VisiumHD/250627_VH00421_91_222CCLVNX/results/LE-773-SK/outs/binned_outputs/square_002um/",
+                "output_dir": "/mnt/ribolution/tertiary_analysis/2024-kunz-melanom-visium-hd/bin2cell/"
+            }
+        },
+        "LE-773-SK-original": {
+            "scale_image": true,
+            "visium_hd": {
+                "microscope_image_path": "/mnt/ribolution/secondary_analysis/2025_SpatSeq_VisiumHD/250627_VH00421_91_222CCLVNX/microscope_images/LE-773-SK_20x.tif",
+                "spaceranger_image_path": "/mnt/ribolution/secondary_analysis/2025_SpatSeq_VisiumHD/250627_VH00421_91_222CCLVNX/results/LE-773-SK/outs/spatial/",
+                "square_002um_path": "/mnt/ribolution/secondary_analysis/2025_SpatSeq_VisiumHD/250627_VH00421_91_222CCLVNX/results/LE-773-SK/outs/binned_outputs/square_002um/",
+                "output_dir": "/mnt/ribolution/tertiary_analysis/2024-kunz-melanom-visium-hd/bin2cell/"
+            }
+        }
+    },
+    "tacco": {
+        "LE-773-SK": {
+            "anndata_files": {
+                "hema": "/mnt/ribolution/tertiary_analysis/2024-kunz-melanom-visium-hd/bin2cell/LE-773-SK-hema/h5-files/adata-post-b2c.h5ad",
+                "original": "/mnt/ribolution/tertiary_analysis/2024-kunz-melanom-visium-hd/bin2cell/LE-773-SK-original/h5-files/adata-post-b2c.h5ad"
+            },
+            "single_cell_reference": {
+                "h5ad_file": "/mnt/ribolution/tertiary_analysis/2024-kunz-melanom-visium-hd/celltype_annotation/single_cell_reference/Stubenvoll_2025_melanoma_single_cell_reference.h5ad",
+                "annotation_key": ["celltype_medium", "celltype_broad"]
+            },
+            "tacco": {
+                "method": ["OT"]
+            },
+            "conda_env": "/homes/olymp/christoph.kaempf/.conda/envs/2024-kunz-spatial-r440",
+            "output_dir": "/mnt/ribolution/tertiary_analysis/2024-kunz-melanom-visium-hd/tacco/LE-773-SK"
         }
     }
 }
