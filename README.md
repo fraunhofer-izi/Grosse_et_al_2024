@@ -6,6 +6,13 @@ This repository contains code used to produce the results in: Florian Große et 
 
 All scripts were developed in an Rstudio server running in a Singularity container. Package versions are controlled via renv which should allow anyone to replicate the exact state of package versions used to produce the results.
 
+# Analysis
+
+1. Stain deconvolution ()
+2. Segmentation (bin2cell)
+3. Cell type annotation (tacco OT)
+
+
 # Content
 
 # Reproduction

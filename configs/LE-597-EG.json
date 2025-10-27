@@ -1,0 +1,49 @@
+{
+    "LE-597-EG": {
+        "microscope_image_path": "/mnt/ribolution/secondary_analysis/2024_SpatSeq_VisiumHD/240826_VH00421_59_AACGNK5HV/microscope_images/Hautklinik_Kunz/20240704_A1_942-4.tif",
+        "output_dir": "/mnt/ribolution/tertiary_analysis/2024-kunz-melanom-visium-hd/stain_deconvolution/",
+        "stain_matrices": {
+            "scikitimage_rgb_from_hed": [
+                [0.65, 0.7 , 0.29],
+                [0.07, 0.99, 0.11],
+                [0.27, 0.57, 0.78]
+            ]
+        }
+    }
+}{
+    "LE-597-EG-hema": {
+        "scale_image": true,
+        "visium_hd": {
+            "histology_id": "942",
+            "microscope_image_path": "/mnt/ribolution/tertiary_analysis/2024-kunz-melanom-visium-hd/stain_deconvolution/LE-597-EG/scikitimage_rgb_from_hed_hema.tiff",
+            "spaceranger_image_path": "/mnt/ribolution/secondary_analysis/2024_SpatSeq_VisiumHD/240826_VH00421_59_AACGNK5HV/results/Hautklinik_Kunz/942-4/outs/spatial/",
+            "square_002um_path": "/mnt/ribolution/secondary_analysis/2024_SpatSeq_VisiumHD/240826_VH00421_59_AACGNK5HV/results/Hautklinik_Kunz/942-4/outs/binned_outputs/square_002um/",
+            "output_dir": "/mnt/ribolution/tertiary_analysis/2024-kunz-melanom-visium-hd/bin2cell/"
+        },
+        "single_cell": {
+            "geo_sample": "GSM8515684",
+            "title": "pm10, scRNAseq",
+            "barcodes": "/mnt/ribolution/user_worktmp/florian.peter.grosse/datasets/Stubenvoll_2025_melanoma/GSE277165_extracted/GSM8515684_MM10_barcodes.tsv.gz",
+            "features": "/mnt/ribolution/user_worktmp/florian.peter.grosse/datasets/Stubenvoll_2025_melanoma/GSE277165_extracted/GSM8515684_MM10_features.tsv.gz",
+            "matrix": "/mnt/ribolution/user_worktmp/florian.peter.grosse/datasets/Stubenvoll_2025_melanoma/GSE277165_extracted/GSM8515684_MM10_matrix.mtx.gz"
+        }
+    }
+}{
+    "LE-597-EG-original": {
+        "scale_image": true,
+        "visium_hd": {
+            "histology_id": "942",
+            "microscope_image_path": "/mnt/ribolution/secondary_analysis/2024_SpatSeq_VisiumHD/240826_VH00421_59_AACGNK5HV/microscope_images/Hautklinik_Kunz/20240704_A1_942-4.tif",
+            "spaceranger_image_path": "/mnt/ribolution/secondary_analysis/2024_SpatSeq_VisiumHD/240826_VH00421_59_AACGNK5HV/results/Hautklinik_Kunz/942-4/outs/spatial/",
+            "square_002um_path": "/mnt/ribolution/secondary_analysis/2024_SpatSeq_VisiumHD/240826_VH00421_59_AACGNK5HV/results/Hautklinik_Kunz/942-4/outs/binned_outputs/square_002um/",
+            "output_dir": "/mnt/ribolution/tertiary_analysis/2024-kunz-melanom-visium-hd/bin2cell/"
+        },
+        "single_cell": {
+            "geo_sample": "GSM8515684",
+            "title": "pm10, scRNAseq",
+            "barcodes": "/mnt/ribolution/user_worktmp/florian.peter.grosse/datasets/Stubenvoll_2025_melanoma/GSE277165_extracted/GSM8515684_MM10_barcodes.tsv.gz",
+            "features": "/mnt/ribolution/user_worktmp/florian.peter.grosse/datasets/Stubenvoll_2025_melanoma/GSE277165_extracted/GSM8515684_MM10_features.tsv.gz",
+            "matrix": "/mnt/ribolution/user_worktmp/florian.peter.grosse/datasets/Stubenvoll_2025_melanoma/GSE277165_extracted/GSM8515684_MM10_matrix.mtx.gz"
+        }
+    }
+}
