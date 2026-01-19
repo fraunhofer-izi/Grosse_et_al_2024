@@ -1,6 +1,8 @@
-# Grosse_et_al_2024
+# Grosse etal. 2026
 
-This repository contains code used to produce the results in: Florian Große et al. Spatial transcriptomics of melanoma tissues reveals new tumor– immune cell interactions in humans. (not released yet)
+This repository contains code used to produce the results in:
+
+> "Florian Große et al. Spatial transcriptomics of melanoma tissues reveals new tumor– immune cell interactions in humans. (not released yet)"
 
 # Singularity
 

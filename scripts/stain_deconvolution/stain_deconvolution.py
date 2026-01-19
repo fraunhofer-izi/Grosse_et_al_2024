@@ -308,7 +308,7 @@ def main():
 
             out_dir = sd_params["output_dir"]
             # save eosin image
-            save_image_array(eosin_arr, out_dir, sample=sample, matrix=matrix, stain="eosin")
+            #save_image_array(eosin_arr, out_dir, sample=sample, matrix=matrix, stain="eosin")
 
             # save hematoxylin image
             save_image_array(hema_arr, out_dir, sample=sample, matrix=matrix, stain="hema")

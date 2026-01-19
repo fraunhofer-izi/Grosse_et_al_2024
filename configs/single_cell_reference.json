@@ -1,8 +1,8 @@
 {
-    "celltype_annotation": "/mnt/ribolution/tertiary_analysis/2024-kunz-melanom-visium-hd/single-cell-data/Stubenvoll_Schmidt_2025_cell_annotation_parsed_and_converted.tsv",
-    "cell_type_state": "/mnt/ribolution/user_worktmp/florian.peter.grosse/projects/2025-uccl-melanom-spatial-comparisons/assets/single_cell_reference/cell_type_state_matching.tsv",
-    "path_to_sc_data": "/mnt/ribolution/tertiary_analysis/2024-kunz-melanom-visium-hd/single-cell-data/Stubenvoll_2025_melanoma/GSE277165_extracted",
-    "output_dir": "/mnt/ribolution/tertiary_analysis/2024-kunz-melanom-visium-hd/celltype_annotation/single_cell_reference",
+    "celltype_annotation": "../../data/single_cell_data/Stubenvoll_Schmidt_2025_cell_annotation_parsed_and_converted.tsv",
+    "cell_type_state": "../../data/single_cell_data/cell_type_state_matching.tsv",
+    "path_to_sc_data": "../../data/single_cell_data/GSE277165_extracted",
+    "output_dir": "../../data/output/single_cell_reference",
     "h5ad_file": "Stubenvoll_2025_melanoma_single_cell_reference.h5ad",
     "sample_name_map": {
         "GSM8515675": "MM01",
