@@ -1,0 +1,11 @@
+{
+    "HD_MM2": {
+        "scale_image": true,
+        "visium_hd": {
+            "microscope_image_path": "../../data/output/stain_deconvolution/HD_MM2/scikitimage_rgb_from_hed_hema.tiff",
+            "spaceranger_image_path": "../../data/spatial_seq_data/HD_MM2/",
+            "square_002um_path": "../../data/spatial_seq_data/HD_MM2/",
+            "output_dir": "../../data/output/bin2cell/"
+        }
+    }
+}
