@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 # Functions for stain matrices
 
+
 def join_vertically(*args):
     """Joins many PIL images of the same dimensions vertically"""
     w, h = args[0].size
@@ -30,6 +31,7 @@ def join_vertically(*args):
     for y_off, img in zip(range(0, n * h, h), args):
         joined.paste(img, (0, y_off))
     return joined
+
 
 def join_horizontally(*args):
     """Joins many PIL images of the same dimensions horizontally"""
@@ -40,27 +42,36 @@ def join_horizontally(*args):
         joined.paste(img, (x_off, 0))
     return joined
 
+
 def create_matrix_image(matrix, inverse=False):
     """Vertical visualisation of stain-matrix.
-    
+
     Args:
         matrix (list): List of length >= 3; first three entries must have values between 0 and 1
         inverse (bool, optional): If True the inverse of the color values are used. Defaults to False.
     """
 
-    if inverse==False:
+    if inverse == False:
         pil_matrix = join_vertically(
             Image.new("RGB", (100, 100), tuple([int(255 * c) for c in matrix[0]])),
             Image.new("RGB", (100, 100), tuple([int(255 * c) for c in matrix[1]])),
-            Image.new("RGB", (100, 100), tuple([int(255 * c) for c in matrix[2]]))
-            )
+            Image.new("RGB", (100, 100), tuple([int(255 * c) for c in matrix[2]])),
+        )
     else:
         pil_matrix = join_vertically(
-        Image.new("RGB", (100, 100), tuple([int(255 * (1-c)) for c in matrix[0]])),
-        Image.new("RGB", (100, 100), tuple([int(255 * (1-c)) for c in matrix[1]])),
-        Image.new("RGB", (100, 100), tuple([int(255 * (1-c)) for c in matrix[2]])))
-        
+            Image.new(
+                "RGB", (100, 100), tuple([int(255 * (1 - c)) for c in matrix[0]])
+            ),
+            Image.new(
+                "RGB", (100, 100), tuple([int(255 * (1 - c)) for c in matrix[1]])
+            ),
+            Image.new(
+                "RGB", (100, 100), tuple([int(255 * (1 - c)) for c in matrix[2]])
+            ),
+        )
+
     return pil_matrix
+
 
 def display_stain_matrix(matrix, inverse=False):
     """Horizontal visualisation of stain-matrix.
@@ -68,27 +79,46 @@ def display_stain_matrix(matrix, inverse=False):
     Args:
         matrix (list): List of length >= 3; first three entries must have values between 0 and 1
         inverse (bool, optional): If True the inverse of the color values are used. Defaults to False.
-    """    
-    plt.axis('off')
-    if inverse==False: 
-        plt.imshow(join_horizontally(
-        Image.new("RGB", (100, 100), tuple([int(255 * c) for c in matrix[0]])),
-        Image.new("RGB", (100, 100), tuple([int(255 * c) for c in matrix[1]])),
-        Image.new("RGB", (100, 100), tuple([int(255 * c) for c in matrix[2]])))
+    """
+    plt.axis("off")
+    if inverse == False:
+        plt.imshow(
+            join_horizontally(
+                Image.new("RGB", (100, 100), tuple([int(255 * c) for c in matrix[0]])),
+                Image.new("RGB", (100, 100), tuple([int(255 * c) for c in matrix[1]])),
+                Image.new("RGB", (100, 100), tuple([int(255 * c) for c in matrix[2]])),
+            )
         )
     else:
-        plt.imshow(join_horizontally(
-        Image.new("RGB", (100, 100), tuple([int(255 * (1-c)) for c in matrix[0]])),
-        Image.new("RGB", (100, 100), tuple([int(255 * (1-c)) for c in matrix[1]])),
-        Image.new("RGB", (100, 100), tuple([int(255 * (1-c)) for c in matrix[2]])))
+        plt.imshow(
+            join_horizontally(
+                Image.new(
+                    "RGB", (100, 100), tuple([int(255 * (1 - c)) for c in matrix[0]])
+                ),
+                Image.new(
+                    "RGB", (100, 100), tuple([int(255 * (1 - c)) for c in matrix[1]])
+                ),
+                Image.new(
+                    "RGB", (100, 100), tuple([int(255 * (1 - c)) for c in matrix[2]])
+                ),
+            )
         )
 
-def create_hed_stains(img_array, stain_matrix, clipping_function=None, to_clip = [], clip_args={},
-                      contrast_fct=None, to_adjust=[], contrast_args=[]):
+
+def create_hed_stains(
+    img_array,
+    stain_matrix,
+    clipping_function=None,
+    to_clip=[],
+    clip_args={},
+    contrast_fct=None,
+    to_adjust=[],
+    contrast_args=[],
+):
     """Computes stain deconvolution of image in 'img_array' based on 'stain_matrix'.
     Usually used for HED color separation (H (hematoxylin), E (Eosin) and D (DAB)).
-    Additionally  
-    
+    Additionally
+
     Args:
         img_array (np.array): Image to deconvolute
         stain_matrix (np.array): Stain matrix to be used for stain deconvolution
@@ -98,7 +128,7 @@ def create_hed_stains(img_array, stain_matrix, clipping_function=None, to_clip =
         contrast_fct (function, optional): Function used for contrast adjustment
         to_adjust (list, optional): List of channels to adjust contrast for
         contrast_args (list, optional): List of dictionaries, each dictionary contains arguments for each channel to adjust contrast
-        
+
     Returns:
         {
         'my_h' (np.array): Hematoxylin stain, for visualisation
@@ -106,14 +136,16 @@ def create_hed_stains(img_array, stain_matrix, clipping_function=None, to_clip =
         'my_d' (np.array): DAB stain, for visualisation
 
         'my_hed' (np.array): Reassembled image in HED color space, e. g. to calculate histograms of pixel intensities
-        'my_ihc' (np.array): Reassembled image in RGB color space. 
+        'my_ihc' (np.array): Reassembled image in RGB color space.
         }
 
     """
 
     # stain matrix has to be normalised and inverted
     normalised_stain_matrix = stain_matrix
-    normalised_stain_matrix = normalised_stain_matrix/np.reshape(np.sum(normalised_stain_matrix**2, axis = 1)**(1/2), (-1,1))
+    normalised_stain_matrix = normalised_stain_matrix / np.reshape(
+        np.sum(normalised_stain_matrix**2, axis=1) ** (1 / 2), (-1, 1)
+    )
     # L2-normalisation of matrix
     # every value will be squared and row-wise summed up; square root of this sum == euclidian distance
     # reshape column vector
@@ -126,8 +158,8 @@ def create_hed_stains(img_array, stain_matrix, clipping_function=None, to_clip =
     logger.info(f"Image array shape: {img_array.shape[channel_axis]}")
     if img_array.shape[channel_axis] != 3:
         msg = (
-            f'the input array must have size 3 along `channel_axis`, '
-            f'got {img_array.shape}'
+            f"the input array must have size 3 along `channel_axis`, "
+            f"got {img_array.shape}"
         )
         raise ValueError(msg)
     my_hed = skim.color.separate_stains(img_array, inverse_norm_stain_mat)
@@ -137,11 +169,11 @@ def create_hed_stains(img_array, stain_matrix, clipping_function=None, to_clip =
     use_e = my_hed[:, :, 1]
     use_d = my_hed[:, :, 2]
 
-    # Clipping: 
+    # Clipping:
     if "H" in to_clip:
         use_h = clipping_function(my_hed[:, :, 0], **clip_args)
-        print("Clipped H with: " +  str(clip_args))
-    
+        print("Clipped H with: " + str(clip_args))
+
     if "E" in to_clip:
         use_e = clipping_function(my_hed[:, :, 1], **clip_args)
         print("Clipped E with: " + str(clip_args))
@@ -150,16 +182,16 @@ def create_hed_stains(img_array, stain_matrix, clipping_function=None, to_clip =
         use_d = clipping_function(my_hed[:, :, 2], **clip_args)
         print("Clipped D with: " + str(clip_args))
 
-    # Adjust contrast: 
+    # Adjust contrast:
     if "H" in to_adjust:
         use_h = contrast_fct(use_h, **contrast_args[0])
         print("Adjusted H with: " + str(contrast_args[0]))
-        #print("Adjusted H: ", use_h)
-    
+        # print("Adjusted H: ", use_h)
+
     if "E" in to_adjust:
         use_e = contrast_fct(use_e, **contrast_args[1])
         print("Adjusted E with: " + str(contrast_args[1]))
-        #print("Adjusted E: ", use_e)
+        # print("Adjusted E: ", use_e)
 
     if "D" in to_adjust:
         use_d = contrast_fct(use_d, **contrast_args[2])
@@ -168,47 +200,55 @@ def create_hed_stains(img_array, stain_matrix, clipping_function=None, to_clip =
     # contrast adjustment is also possible on clipped channels!
 
     my_h = skim.color.combine_stains(
-        np.stack((
+        np.stack(
+            (
                 use_h,
                 np.zeros_like(my_hed[:, :, 0]),
                 np.zeros_like(my_hed[:, :, 0]),
             ),
             axis=-1,
-        ), normalised_stain_matrix,
+        ),
+        normalised_stain_matrix,
     )
 
     my_e = skim.color.combine_stains(
-        np.stack((
+        np.stack(
+            (
                 np.zeros_like(my_hed[:, :, 0]),
                 use_e,
                 np.zeros_like(my_hed[:, :, 0]),
             ),
             axis=-1,
-        ), normalised_stain_matrix,
+        ),
+        normalised_stain_matrix,
     )
 
     my_d = skim.color.combine_stains(
-        np.stack((
+        np.stack(
+            (
                 np.zeros_like(my_hed[:, :, 0]),
                 np.zeros_like(my_hed[:, :, 0]),
                 use_d,
             ),
             axis=-1,
-        ), normalised_stain_matrix,
+        ),
+        normalised_stain_matrix,
     )
 
     # stack h, e, d channels together. Calculate histograms based on this
     my_hed = np.stack((use_h, use_e, use_d), axis=-1)
 
     # Back transformation of Rücktransformation von HED zu RGB
-    my_ihc = skim.color.combine_stains(my_hed, normalised_stain_matrix) 
+    my_ihc = skim.color.combine_stains(my_hed, normalised_stain_matrix)
     # = zusammengebautes bild aus h,e,d in rgb --> für Visualisierung
 
     return my_h, my_e, my_d, my_hed, my_ihc
 
+
 def stain_deconvolution(img_array, stain_matrix) -> np.array:
     img_array_deconv = skim.color.separate_stains(img_array, stain_matrix)
     return img_array_deconv
+
 
 def imwrite(path: Path, img_arr: np.array, **kwargs):
     """Function to wrap tifffile.imwrite
@@ -250,17 +290,18 @@ def save_image_array(img_arr, output_dir, sample: str, matrix: str, stain: str):
     out_path.mkdir(parents=True, exist_ok=True)
     tiff_file = out_path.joinpath(f"{matrix}_{stain}.tiff")
     logger.info(f"Write {stain} TIFF file:\n{tiff_file}")
-    imwrite(tiff_file, img_arr, photometric='rgb', compression="jpeg")
+    imwrite(tiff_file, img_arr, photometric="rgb", compression="jpeg")
 
     # Scale image for display
     logger.info(f"Scale {stain} image")
     tiff_scaled_file = out_path.joinpath(f"{matrix}_{stain}_scale_10-percent.tiff")
-    img_arr_rescaled = skim.transform.rescale(img_arr, 0.1, channel_axis = -1)
+    img_arr_rescaled = skim.transform.rescale(img_arr, 0.1, channel_axis=-1)
     logger.info(f"Write {stain} TIFF file:\n{tiff_scaled_file}")
-    imwrite(tiff_scaled_file, img_arr_rescaled, photometric='rgb', compression="jpeg")
+    imwrite(tiff_scaled_file, img_arr_rescaled, photometric="rgb", compression="jpeg")
+
 
 def main():
-    logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.INFO)
+    logging.basicConfig(format="%(levelname)s:%(message)s", level=logging.INFO)
     # Define argument parser
     parser = argparse.ArgumentParser()
     # Tell them we started
@@ -268,11 +309,11 @@ def main():
     parser.add_argument(
         "--json",
         help="Path to json file containing configuration parameter",
-        required=True)
+        required=True,
+    )
     parser.add_argument(
-        "--verbose",
-        help="increase output verbosity",
-        action="store_true")
+        "--verbose", help="increase output verbosity", action="store_true"
+    )
     args = parser.parse_args()
     # args = parser.parse_args(["--json", "assets/manifest.json"])
     # Read params from JSON file
@@ -294,7 +335,8 @@ def main():
         full_image_slide = tiffslide.TiffSlide(sd_params["microscope_image_path"])
         width, height = full_image_slide.dimensions[0], full_image_slide.dimensions[1]
         full_image_array = full_image_slide.read_region(
-            (0, 0), 0, (width, height), as_array=True)
+            (0, 0), 0, (width, height), as_array=True
+        )
         logger.info(f"Full image looks like:\n{full_image_array}")
 
         # Perform stain deconvolution for each stain matrix in config
@@ -304,19 +346,23 @@ def main():
             logger.info(stain_matrix)
             logger.info(type(stain_matrix))
             hema_arr, eosin_arr, dab_arr, hed_arr, rgb_arr = create_hed_stains(
-                full_image_array, stain_matrix)
+                full_image_array, stain_matrix
+            )
 
             out_dir = sd_params["output_dir"]
             # save eosin image
-            #save_image_array(eosin_arr, out_dir, sample=sample, matrix=matrix, stain="eosin")
+            # save_image_array(eosin_arr, out_dir, sample=sample, matrix=matrix, stain="eosin")
 
             # save hematoxylin image
-            save_image_array(hema_arr, out_dir, sample=sample, matrix=matrix, stain="hema")
+            save_image_array(
+                hema_arr, out_dir, sample=sample, matrix=matrix, stain="hema"
+            )
 
             # Clean up unused objects
 
             del hema_arr, eosin_arr, dab_arr, hed_arr, rgb_arr
             gc.collect()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

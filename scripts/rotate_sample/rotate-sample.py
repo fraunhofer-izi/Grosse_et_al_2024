@@ -26,17 +26,16 @@ import spatialdata_io as sd_io
 import spatialdata_plot
 import squidpy as sq
 
-
 # Functions
 
-def rotate_images_in_adata(adata,  sample_id, angle=0):
+
+def rotate_images_in_adata(adata, sample_id, angle=0):
 
     # Rotate the spatial coordinates by a certain angle (e.g., 45 degrees)
     theta = np.radians(angle)  # angle in degrees
-    rotation_matrix = np.array([
-        [np.cos(theta), -np.sin(theta)],
-        [np.sin(theta),  np.cos(theta)]
-    ])
+    rotation_matrix = np.array(
+        [[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]]
+    )
 
     ## Rotate the spatial coordinates
     coords = adata.obsm["spatial"]
@@ -53,17 +52,20 @@ def rotate_images_in_adata(adata,  sample_id, angle=0):
 
     ## Rotate the images
     for res in ["hires", "lowres"]:
-        
+
         # Extract image
         img = adata.uns["spatial"][sample_id]["images"][res]
 
         # Rotate image 90 degrees counter-clockwise
-        rotated_img = rotate(img, angle=-angle, reshape=True)  # reshape=True to keep full image
+        rotated_img = rotate(
+            img, angle=-angle, reshape=True
+        )  # reshape=True to keep full image
 
         # If needed, overwrite or store separately
         adata.uns["spatial"][sample_id]["images"][res] = rotated_img
 
     return adata
+
 
 def main():
     logging.basicConfig(format="%(levelname)s:%(message)s", level=logging.INFO)
@@ -100,7 +102,6 @@ def main():
         output_dir = Path(params[sample]["output_dir"])
         output_dir.mkdir(parents=True, exist_ok=True)
 
-
         for ad_name, ad_path in params[sample]["anndata_files"].items():
             #
             ad_path = Path(ad_path)
@@ -112,7 +113,8 @@ def main():
             rotate_adata = rotate_images_in_adata(
                 adata=spatial_adata,
                 sample_id=params[sample]["image_id"],
-                angle=int(params[sample]["rotation_angle"]))
+                angle=int(params[sample]["rotation_angle"]),
+            )
 
             # Assemble output file name
             rotate_file_name = f"{ad_path.stem}-rotate{ad_path.suffix}"
@@ -121,6 +123,7 @@ def main():
             logging.info(f"""Write rotated AnnData to file: {rotate_adata_path}""")
 
             rotate_adata.write_h5ad(rotate_adata_path)
+
 
 if __name__ == "__main__":
     main()

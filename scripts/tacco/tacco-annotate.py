@@ -15,6 +15,7 @@ import tacco as tc
 
 # Functions
 
+
 def preprocess_reference(sc_ref: ad.AnnData, anno_key: str):
     # Construct reference profiles from categorical annotation
     logging.info(f"Construct reference profiles for annotation {anno_key}")
@@ -40,13 +41,14 @@ def preprocess_reference(sc_ref: ad.AnnData, anno_key: str):
         return_mask=False,
         return_view=True,
     )
-    return(sc_ref)
+    return sc_ref
+
 
 def run_tacco_OT(spatial_adata: ad.AnnData, sc_ref: ad.AnnData, anno_key: str):
 
     # Preprocess annotation reference
     sc_ref = preprocess_reference(sc_ref, anno_key)
-    
+
     # Annotate spatial_data using OT method
     result_key = f"tacco_OT_{anno_key}"
     logging.info("Annotate AnnData using OT method")
@@ -61,17 +63,19 @@ def run_tacco_OT(spatial_adata: ad.AnnData, sc_ref: ad.AnnData, anno_key: str):
     )
 
     spatial_adata = tc.utils.get_maximum_annotation(
-        spatial_adata,
-        obsm_key=result_key,
-        result_key=result_key)
+        spatial_adata, obsm_key=result_key, result_key=result_key
+    )
 
-    return(spatial_adata)
+    return spatial_adata
 
-def run_tacco_RCTD(spatial_adata: ad.AnnData,
-                   sc_ref: ad.AnnData,
-                   anno_key: str,
-                   conda_env: Path,
-                   n_cores: int = 20):
+
+def run_tacco_RCTD(
+    spatial_adata: ad.AnnData,
+    sc_ref: ad.AnnData,
+    anno_key: str,
+    conda_env: Path,
+    n_cores: int = 20,
+):
 
     # Preprocess annotation reference
     sc_ref = preprocess_reference(sc_ref, anno_key)
@@ -97,15 +101,14 @@ def run_tacco_RCTD(spatial_adata: ad.AnnData,
         doublet=True,
         n_cores=n_cores,
         verbose=True,
-        working_directory="."
+        working_directory=".",
     )
 
     spatial_adata = tc.utils.get_maximum_annotation(
-        spatial_adata,
-        obsm_key=result_key,
-        result_key=result_key)
+        spatial_adata, obsm_key=result_key, result_key=result_key
+    )
 
-    return(spatial_adata)
+    return spatial_adata
 
 
 def main():
@@ -180,31 +183,39 @@ def main():
             for method in params[sample]["tacco"]["method"]:
                 logging.info(f"Apply annotation method {method} to {ad_path.name}")
 
-                for anno_key in params[sample]["single_cell_reference"]["annotation_key"]:
+                for anno_key in params[sample]["single_cell_reference"][
+                    "annotation_key"
+                ]:
                     logging.info("")
                     if method == "OT":
-                        spatial_adata = run_tacco_OT(spatial_adata.copy(), sc_ref, anno_key)
+                        spatial_adata = run_tacco_OT(
+                            spatial_adata.copy(), sc_ref, anno_key
+                        )
                     elif method == "RCTD":
                         adata = spatial_adata.copy()
                         # We need to do the rounding here, because it does not work in tacco itself:
                         # - https://github.com/simonwm/tacco/blob/87252c6ffcf5f616ffbf167a8d4d34bb8d86d276/tacco/tools/_RCTD.py#L17
                         #   does not alter the values in adata.X.adata (I do not understand why)
-                        
+
                         run_tacco_RCTD(
                             spatial_adata,
                             sc_ref,
                             anno_key,
                             params[sample]["conda_env"],
-                            n_cores = 20)
+                            n_cores=20,
+                        )
 
                 # Assemble output file name
-                spatial_adata_path = output_dir.joinpath(f"tacco-annotate-{method}-{sample}-{ad_name}.h5ad")            
+                spatial_adata_path = output_dir.joinpath(
+                    f"tacco-annotate-{method}-{sample}-{ad_name}.h5ad"
+                )
 
                 logging.info(f"""Write annotated AnnData for method {method}
                                 using annotaton "{anno_key}" to file 
                                 {spatial_adata_path}""")
 
                 spatial_adata.write_h5ad(spatial_adata_path)
+
 
 if __name__ == "__main__":
     main()

@@ -3,7 +3,7 @@
         "scale_image": true,
         "visium_hd": {
             "microscope_image_path": "../../data/output/stain_deconvolution/HD_MM3/scikitimage_rgb_from_hed_hema.tiff",
-            "spaceranger_image_path": "../../data/spatial_seq_data/HD_MM3/",
+            "spaceranger_image_path": "../../data/spatial_seq_data/HD_MM3/spatial/",
             "square_002um_path": "../../data/spatial_seq_data/HD_MM3/",
             "output_dir": "../../data/output/bin2cell/"
         }

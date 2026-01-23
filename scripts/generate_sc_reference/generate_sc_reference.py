@@ -16,18 +16,21 @@ import scanpy as sc
 
 # Functions
 
-def create_adata_per_sample(path_to_sc_data, gsm, geo_sample_name, cell_anno, cell_type_state):
+
+def create_adata_per_sample(
+    path_to_sc_data, gsm, geo_sample_name, cell_anno, cell_type_state
+):
     logger.info(f"Try loading GSM {gsm} with sample name {geo_sample_name}.")
     # load scRNA data for samples: MM01, MM02, etc.
     gsm_adata = sc.read_10x_mtx(
         path=path_to_sc_data,
         prefix=f"{gsm}_{geo_sample_name}_",
-        )
+    )
     # filter cell_anno for "GEO_samplename" == "MM01", "MM02", etc.
     geo_sample_anno = cell_anno[cell_anno["GEO_samplename"] == geo_sample_name]
 
     # Add information from cell_type_state to geo_sample_anno
-    geo_sample_anno = geo_sample_anno.merge(cell_type_state, on='celltype', how='left')
+    geo_sample_anno = geo_sample_anno.merge(cell_type_state, on="celltype", how="left")
 
     # Add index
     geo_sample_anno.index = geo_sample_anno["in_sample_barcode"]
@@ -42,15 +45,19 @@ def create_adata_per_sample(path_to_sc_data, gsm, geo_sample_name, cell_anno, ce
     geo_sample_anno.reindex(gsm_adata.obs_names)
 
     # ... so we can add it to the AnnData object
-    geo_sample_anno_cat = geo_sample_anno[[
-        "celltype",
-        "celltype_medium",
-        "celltype_broad",
-        "celltype_heatmap_anno",
-        "sum_type"]]
+    geo_sample_anno_cat = geo_sample_anno[
+        [
+            "celltype",
+            "celltype_medium",
+            "celltype_broad",
+            "celltype_heatmap_anno",
+            "sum_type",
+        ]
+    ]
     gsm_adata.obs = pd.concat([gsm_adata.obs, geo_sample_anno_cat], axis=1)
-    gsm_adata.obs = gsm_adata.obs.astype('category')
+    gsm_adata.obs = gsm_adata.obs.astype("category")
     return gsm_adata
+
 
 def main():
     logging.basicConfig(format="%(levelname)s:%(message)s", level=logging.INFO)
@@ -81,19 +88,17 @@ def main():
         sys.exit()
 
     # Let's load the cell annotation information ...
-    cell_anno = pd.read_csv(
-        filepath_or_buffer=params["celltype_annotation"],
-        sep="\t")
+    cell_anno = pd.read_csv(filepath_or_buffer=params["celltype_annotation"], sep="\t")
 
     # ... and the information about cell type states
     cell_type_state = pd.read_csv(
-        filepath_or_buffer=params["cell_type_state"],
-        sep="\t")
+        filepath_or_buffer=params["cell_type_state"], sep="\t"
+    )
 
     # Path to directory containing the scRNA for all samples
     path_to_sc_data = params["path_to_sc_data"]
 
-    # Map GSM accession to sample name 
+    # Map GSM accession to sample name
     sample_name_map = params["sample_name_map"]
 
     # Initialize empty hash that will hold all AnnData objects of all scRNA samples
@@ -105,7 +110,8 @@ def main():
             gsm=k,
             geo_sample_name=v,
             cell_anno=cell_anno,
-            cell_type_state=cell_type_state)
+            cell_type_state=cell_type_state,
+        )
 
     sc_ref = ad.concat(adatas)
     sc_ref.obs_names_make_unique()
@@ -118,6 +124,7 @@ def main():
     h5ad_file = output_dir.joinpath(params["h5ad_file"])
     # Save single cell reference to h5ad file
     sc_ref.write_h5ad(filename=h5ad_file)
+
 
 if __name__ == "__main__":
     main()

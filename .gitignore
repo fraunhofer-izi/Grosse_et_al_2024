@@ -34,3 +34,6 @@ __pycache__
 
 # Link to results
 results
+
+# VS code specific files
+.vscode

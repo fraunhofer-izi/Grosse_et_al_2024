@@ -2,6 +2,8 @@
 
 import os
 
+# os.environ["OPENCV_IO_MAX_IMAGE_PIXELS"] = str(pow(2,40))
+# os.environ["OPENCV_IO_MAX_IMAGE_PIXELS"] = pow(2,40).__str__()
 import argparse
 import json
 import logging
@@ -10,33 +12,125 @@ logger = logging.getLogger(__name__)
 from pathlib import Path
 import sys
 
-import anndata
 import scanpy as sc
-import matplotlib.pyplot as plt
-import numpy as np
 
 import bin2cell as b2c
 
-from spatial_transcriptomics_analysis.io import (
-    load_scalefactors_json,
-    load_visium_hd,
-)
-from spatial_transcriptomics_analysis.bin2cell_wrapper import (
-    scale_he_image,
-    destripe_anndata,
-    apply_stardist,
-    generate_gex_image,
-    combine_labels,
-    write_h5ad,
-    bin_to_cell,
-)
 
-
-def filter_data(adata, min_cells_with_gene, min_counts_per_cell):
-    logging.info("Filter Data")
-    sc.pp.filter_genes(adata, min_cells=min_cells_with_gene)
-    sc.pp.filter_cells(adata, min_counts=min_counts_per_cell)
+def read_visisum_hd(microscope_image_path, square_002um_path, spaceranger_image_path):
+    logging.info("Read Visium HD Data")
+    adata = b2c.read_visium(
+        square_002um_path,
+        source_image_path=microscope_image_path,
+        spaceranger_image_path=spaceranger_image_path,
+    )
+    adata.var_names_make_unique()
     return adata
+
+
+def filter_data(adata, min_cells, min_counts):
+    logging.info("Filter Data")
+    sc.pp.filter_genes(adata, min_cells=min_cells)
+    sc.pp.filter_cells(adata, min_counts=min_counts)
+    return adata
+
+
+def load_scalefactors_json(square_002um_path):
+    # We expect to know where the 'scalefactors_json.json' file
+    # is located relative to the square_002um_path
+    scalefactors_path = Path(f"{square_002um_path}spatial/scalefactors_json.json")
+    scalefactors = None
+    if scalefactors_path.is_file():
+        logging.info(f"File '{scalefactors_path}' exists")
+        # Read scalefactors
+        with open(scalefactors_path) as scalefactors_file:
+            scalefactors = json.load(scalefactors_file)
+            return scalefactors
+    else:
+        logging.error(f"File '{scalefactors_path}' does NOT exist")
+        sys.exit()
+
+
+def scale_he_image(adata, mpp, save_path):
+    logging.info("Scale HE Image")
+    b2c.scaled_he_image(adata, mpp=mpp, save_path=save_path)
+
+
+def destripe_anndata(adata, h5_out_dir):
+    logging.info("Destripe AnnData")
+    b2c.destripe(adata)
+    adata.write_h5ad(f"{h5_out_dir}/adata-destripe.h5ad")
+    return adata
+
+
+def apply_stardist(image_path, labels_npz_path, stardist_model):
+    # Apply Stardist on HE image
+    # 2025-03-05 Changed to use "2D_versatile_fluo" model as test!!!
+    if not stardist_model in ["2D_versatile_fluo", "2D_versatile_he"]:
+        logging.error(f"Unknown stardist model: {stardist_model}")
+        sys.exit()
+    logging.info(f"Apply Stardist to Image: {image_path}")
+    b2c.stardist(
+        image_path=image_path,
+        labels_npz_path=labels_npz_path,
+        stardist_model=stardist_model,
+    )
+
+
+def insert_labels_from_npz(adata, labels_key, labels_npz_path, mpp):
+    logging.info("Insert Stardist Labels")
+    b2c.insert_labels(
+        adata,
+        labels_npz_path=labels_npz_path,
+        basis="spatial",
+        spatial_key="spatial_cropped_150_buffer",
+        mpp=mpp,
+        labels_key=labels_key,
+    )
+
+
+def expand_labels(adata, labels_key):
+    logging.info("Expand Stardist Labels")
+    expanded_labels_key = f"{labels_key}_expanded"
+    b2c.expand_labels(
+        adata, labels_key=labels_key, expanded_labels_key=f"{labels_key}_expanded"
+    )
+    return adata, expanded_labels_key
+
+
+def generate_gex_image(adata, mpp, save_path):
+    logging.info("Check Array Coordinates")
+    b2c.check_array_coordinates(adata)
+    logging.info("Generate Image from Expression Data Pre check_array_coordinates")
+    b2c.grid_image(adata, "n_counts_adjusted", mpp=mpp, sigma=5, save_path=save_path)
+
+
+def combine_labels(adata, primary_labels, secondary_labels, joint_labels):
+    ## Combine labels "labels_he_expanded" and "labels_gex_bdata"
+    logging.info("Combine Labels from Microscopy and Expression")
+    b2c.salvage_secondary_labels(
+        adata,
+        primary_label=primary_labels,
+        secondary_label=secondary_labels,
+        labels_key=joint_labels,
+    )
+    return adata
+
+
+def write_h5ad(adata, save_path):
+    logging.info("Save AnnData object to h5ad file")
+    adata.write_h5ad(save_path)
+
+
+def bin_to_cell(adata, labels_key):
+    logging.info(f"Construct Binned Cells based on Label: {labels_key}")
+    b2c_adata = b2c.bin_to_cell(
+        adata,
+        labels_key="labels_joint",
+        spatial_keys=["spatial"],
+        diameter_scale_factor=None,
+    )
+    return b2c_adata
 
 
 def main():
@@ -70,9 +164,9 @@ def main():
         logging.info(f"Start 'bin2cell' workflow on sample: {sample}")
         # Get parameters for each sample
         visium_params = params[sample]["visium_hd"]
-        microscope_image_path = Path(visium_params["microscope_image_path"])
-        spaceranger_image_path = Path(visium_params["spaceranger_image_path"])
-        square_002um_path = Path(visium_params["square_002um_path"])
+        microscope_image_path = visium_params["microscope_image_path"]
+        spaceranger_image_path = visium_params["spaceranger_image_path"]
+        square_002um_path = visium_params["square_002um_path"]
 
         output_dir = visium_params["output_dir"]
         stardist = f"{output_dir}/{sample}/stardist"
@@ -93,58 +187,43 @@ def main():
         gex_labels_npz = f"{stardist}/GEX.npz"
 
         # Work through bin2cell workflow
-
-        # Load Visium HD data to AnnData
-        adata = load_visium_hd(
+        adata = read_visisum_hd(
             microscope_image_path=microscope_image_path,
             square_002um_path=square_002um_path,
             spaceranger_image_path=spaceranger_image_path,
         )
-
-        # Store raw counts in adata.raw.X
-        adata.raw = adata.copy()
-
-        # Filter AnnData
-        adata = filter_data(adata=adata, min_cells_with_gene=3, min_counts_per_cell=1)
-
-        # Let's try if bin2cell works without image scaling
-
-        scalefactors = load_scalefactors_json(path_to_search=square_002um_path)
+        adata = filter_data(adata=adata, min_cells=3, min_counts=1)
+        scalefactors = load_scalefactors_json(square_002um_path=square_002um_path)
         mpp = scalefactors["microns_per_pixel"]
-        spatial_key = "spatial"
-        if params[sample]["scale_image"]:
-            logger.info("Scale HE image")
-            scale_he_image(adata=adata, mpp=mpp, save_path=stardist_he_tiff)
-            # if we scale the image:
-            # - the scaled image is used down-stream
-            microscope_image_path = stardist_he_tiff
-            # - adata.obsm contains the key "spatial_cropped_150_buffer"
-            spatial_key = 'spatial_cropped_150_buffer'
-        else:
-            logger.info("Not scaling HE image")
-
+        scale_he_image(adata=adata, mpp=mpp, save_path=stardist_he_tiff)
         adata = destripe_anndata(adata=adata, h5_out_dir=h5_out_dir)
         # Apply stardist to microscopy image
         adata, exp_lbl_he = apply_stardist(
-            adata=adata,
-            image_path=microscope_image_path,
+            image_path=stardist_he_tiff,
             labels_npz_path=he_labels_npz,
-            labels_key="labels_he",
-            mpp=mpp,
             stardist_model="2D_versatile_he",
-            spatial_key=spatial_key,
         )
+        # Insert segmentation labels created by stardist
+        he_label_key = "labels_he"
+        insert_labels_from_npz(
+            adata=adata, labels_key=he_label_key, labels_npz_path=he_labels_npz, mpp=mpp
+        )
+        # Expand segmentgation labels to bins surrounding the initial segmentation
+        # Goal is to expand nuclei to "cells"
+        expand_labels(adata=adata, labels_key=he_label_key)
+        # Generate a TIFF image from the expresssion data
         generate_gex_image(adata=adata, mpp=mpp, save_path=gex_tiff)
         # Apply stardist to 'fluorescence' image created from expression data
         adata, exp_lbl_gex = apply_stardist(
-            adata=adata,
             image_path=gex_tiff,
             labels_npz_path=gex_labels_npz,
-            labels_key="labels_gex",
-            mpp=mpp,
             stardist_model="2D_versatile_fluo",
-            spatial_key=spatial_key
         )
+        gex_label_key = "labels_gex"
+        insert_labels_from_npz(
+            adata=adata, labels_key=gex_label_key, labels_npz_path=gex_labels_npz
+        )
+        expand_labels(adata=adata, labels_key=gex_label_key)
 
         adata = combine_labels(
             adata=adata,
@@ -152,7 +231,9 @@ def main():
             secondary_labels=exp_lbl_gex,
             joint_labels="labels_joint",
         )
+
         write_h5ad(adata=adata, save_path=f"{h5_out_dir}/adata-pre-b2c.h5ad")
+
         adata = bin_to_cell(adata=adata, labels_key="labels_joint")
         write_h5ad(adata=adata, save_path=f"{h5_out_dir}/adata-post-b2c.h5ad")
     logger.info("Finished")
