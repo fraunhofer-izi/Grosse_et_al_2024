@@ -1,0 +1,2063 @@
+---
+title: "Plots for HD Data with LIANA Results"
+output:
+  workflowr::wflow_html:
+    code_folding: hide
+    fig_caption: yes
+    number_sections: yes
+    pandoc_args: []
+    self_contained: yes
+    smart: yes
+    toc: yes
+    toc_depth: 5
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE, cache=F}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  error = FALSE,
+  message = FALSE,
+  cache = FALSE,
+  warning = FALSE,
+  results = TRUE,
+  fig.align = 'center',
+  fig.show = 'hold',
+  autodep = TRUE,
+  dpi = 300,
+  dev = c('png') # alternative: dev = c('png') type = 'cairo'
+)
+```
+
+```{r libs-and-functions, echo = F, message = FALSE, warning=FALSE, fig.show='hide'}
+library("conflicted")
+library("Cairo")
+library("tidyverse")
+library("yaml")
+library("Seurat")
+library("semla")
+
+library("ggplot2")
+library("ggnewscale")
+library("naturalsort")
+library("ggalluvial")
+library("patchwork")
+library("cowplot")
+library("ggraph")
+library("ggtext")
+library("grid")
+library("gridpattern")
+library("tidygraph")
+library("ggraph")
+
+library("liana")
+
+conflicts_prefer(
+  dplyr::filter
+)
+
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# Functions
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+source("code/helper/Rmarkdown-style.R")
+theme_set(mytheme(base_size = 6))
+
+# color celltype labels by colmap in markdown, if not in colmap leave it as is
+md_encode_colors <- function(data, colmap, bolden = T){
+  ifelse(is.na(colmap[data]),
+         paste0(data),
+         paste0("<span style='color:",colmap[data],";'>",ifelse(bolden,"**",""),data,ifelse(bolden,"**",""),"</span>"))
+}
+
+# adapted from code from the liana package
+bysample_dotplot <- function(liana_res,
+                             source_groups = NULL,
+                             target_groups = NULL,
+                             ntop = NULL,
+                             sample_column = "sample",
+                             wrap_target_xaxis_sample = F,
+                             Sample_order = NULL,
+                             specificity = "natmi.edge_specificity",
+                             magnitude = "sca.LRscore",
+                             y.label = "Interactions (Ligand -> Receptor)",
+                             size.label = "Interaction\nSpecificity",
+                             colour.label = "Expression\nMagnitude",
+                             show_complex = TRUE,
+                             size_range = c(0.15, 2.),
+                             invert_specificity = FALSE,
+                             invert_magnitude = FALSE,
+                             invert_function = function(x) -log10(x + 1e-10),
+                             highlight = c(""),
+                             title.margins = margin(2,8,2,8,"pt"),
+                             base_size = 4.8,
+                             cellcolors = c("#E69F00", "#56B4E9", # colour blind palette from http://www.cookbook-r.com/Graphs/Colors_(ggplot2)/
+                                            "#009E73", "#F0E442", "#0072B2",
+                                            "#D55E00", "#CC79A7", "#DF69A7"),
+                             ...
+){
+
+  if(show_complex){
+    entities <- c("ligand.complex", "receptor.complex")
+  } else{
+    entities <- c("ligand", "receptor")
+  }
+
+  # Modify for the plot
+  liana_mod <- liana_res %>%
+    # Filter to only the cells of interest
+    `if`(!is.null(source_groups),
+         filter(., source %in% source_groups),
+         .) %>%
+    `if`(!is.null(target_groups),
+         filter(., target %in% target_groups),
+         .)
+
+
+  if(!is.null(ntop)){
+    # Subset to the X top interactions
+    top_int <- liana_mod %>% distinct_at(entities) %>% head(ntop)
+    liana_mod = liana_mod %>% inner_join(top_int, by=entities)
+  }
+
+  if(invert_magnitude){
+    liana_mod %<>% mutate(!!magnitude := invert_function(.data[[magnitude]]))
+  }
+  if(invert_specificity){
+    liana_mod %<>% mutate(!!specificity := invert_function(.data[[specificity]]))
+  }
+
+  liana_mod %<>%
+    dplyr::rename(magnitude = !!magnitude) %>%
+    dplyr::rename(specificity = !!specificity) %>%
+    dplyr::rename(Sample = !!sample_column) %>%
+    mutate(across(all_of(entities), function(x)gsub(x = x, "_", "+"))) %>%
+    unite(entities, col = "interaction", sep = "→") %>%
+    unite(c("source", "target"), col = "source_target", remove = FALSE)
+
+  colmap = if(is.null(names(cellcolors))) {
+    setNames(cellcolors, nm = unique(c(liana_mod$source, liana_mod$target))[1:length(cellcolors)])
+  } else {cellcolors}
+
+  # ensure levels & order is kept the plot
+  Sample_order <- if (is.null(Sample_order)) {liana_mod %>% pull("Sample") %>% unique()} else {Sample_order}
+  liana_mod %<>%
+    mutate(Sample = factor(Sample, levels=Sample_order)) %>%
+    mutate(source = md_encode_colors(as.character(source), colmap), # encode colors
+           target = md_encode_colors(as.character(target), colmap),
+           interaction = md_encode_colors(as.character(interaction), highlight)) %>%
+    mutate(interaction = factor(interaction, levels=rev(unique(interaction)))) %>%
+    mutate(across(where(is.character), as.factor))
+
+  if (length(unique(liana_mod$Sample))==1) {
+    if (wrap_target_xaxis_sample) {
+      if (length(unique(liana_mod$source))==1) {
+        wrap_vars = vars(source)
+        wrap_title = paste0("Target = ", unique(liana_mod$target), ", Source:")
+      } else {
+        wrap_vars = vars(source)
+        wrap_title = paste0("Target = ", unique(liana_mod$target), ", Source:")
+      }
+    } else {
+      if (length(unique(liana_mod$source))==1) {
+        wrap_vars = vars(source)
+        wrap_title = paste0("Sample = ", unique(liana_mod$Sample), ", Source:")
+      } else {
+        wrap_vars = vars(source)
+        wrap_title = paste0("Sample = ", unique(liana_mod$Sample), ", Source:")
+      }
+    }
+  } else {
+    if (wrap_target_xaxis_sample) {
+      if (length(unique(liana_mod$source))==1) {
+        wrap_vars = vars(target)
+        wrap_title = paste0("Source = ", unique(liana_mod$source), ", Target:")
+      } else {
+        wrap_vars = vars(source, target)
+        wrap_title = "Source / Target"
+      }
+    } else {
+      if (length(unique(liana_mod$source))==1) {
+        wrap_vars = vars(Sample)
+        wrap_title = paste0("Source = ", unique(liana_mod$source), ", Sample:")
+      } else {
+        wrap_vars = vars(source, Sample)
+        wrap_title = "Source / Sample"
+      }
+    }
+  }
+
+  xaxisvar = if (wrap_target_xaxis_sample) {quo(Sample)} else {quo(target)}
+  
+  # smaller text size
+  text_size = 0.8*base_size 
+  # plot
+  suppressWarnings(
+    ggdraw(
+      ggplot(liana_mod,
+           aes(x = !!xaxisvar,
+               y = interaction,
+               colour = magnitude,
+               size = specificity,
+               group = target
+           )) +
+      geom_point() +
+      scale_color_gradientn(colours = viridis::viridis(20)) +
+      scale_size_continuous(range = size_range) +
+      facet_grid(cols = wrap_vars,
+                 space = "free",
+                 scales ="free",
+                 switch = "y")  +
+      # scale_x_discrete(position = "right") +
+      labs(y = y.label,
+           colour = colour.label,
+           size = size.label,
+           x = ifelse(wrap_target_xaxis_sample, "Sample", "Target"),
+           title= wrap_title
+      ) +
+      theme_bw(base_size = base_size) +
+      theme(
+        legend.text = element_text(size = text_size),
+        axis.text.x = element_markdown(size = text_size,
+                                   hjust = 1., face = "bold",
+                                   angle = 40),
+        axis.title.x = element_blank(),
+        axis.text.y = element_text(size = text_size,
+                                   margin = margin(r = 4, unit = "pt")),
+        axis.text.y.left = element_markdown(),
+        legend.title = element_text(size = text_size, colour = "gray6"),
+        legend.box.spacing = unit(2, "pt"),
+        panel.spacing = unit(0.1, "lines"),
+        plot.title = element_markdown(vjust = 0, hjust=0.5, margin = title.margins),
+        strip.background = element_rect(fill = NA, color = NA), 
+        strip.clip = "off", # in case the text is bigger than the boxes, but it's not nice
+        strip.text.x.top = element_markdown(size = base_size, margin = title.margins),
+        ...
+      )
+    ) + draw_label("Sample", 0.05, 0.02, 0., 0., fontface = "bold", color = "gray6", size = text_size*1.2)
+  )
+}
+
+# inspired by the HumanColonCancer_VisiumHD repo celltype connection plot,
+# which in turn is mostly taken from CellChat [netVisual_circle]
+# but written from scratch with ggraph
+celltypes_connection_plot <- function( graph_df,
+                                       celltype_colors_table,
+                                       source_column = source,
+                                       target_column = target,
+                                       weight_column = n,
+                                       layout = "dh",
+                                       vertex.size = 40,
+                                       text.size = 6,
+                                       legend.font.size = 20,
+                                       lighten.weak.edges = T,
+                                       edge_size_range = c(1.5,5.5),
+                                       arrows = arrow(type = "closed", angle = 25),
+                                       show_size_legend = T,
+                                       expand_mult = c(0.01, 0.01),
+                                       expand_abs = c(0.2, 0.25),
+                                       vertex_connections_cap = 16,
+                                       size_legend_name = "Number of\nsamples with\nsignificant\nsignal"
+){
+  edges = graph_df %>% transmute(from = {{source_column}}, to = {{target_column}}, w={{weight_column}},
+                                                   source_col = cellcolors[{{source_column}}], target_col = cellcolors[{{target_column}}], 
+                                                   source_col_mod = colorspace::lighten(source_col, (max(w)-w)/(max(w)-min(w)+1), 
+                                                                                        space = "combined"))
+  gr_df = tbl_graph(nodes = tibble(name = unique(c(pull(graph_df, {{source_column}}), pull(graph_df, {{target_column}}))),
+                                   cellcol = celltype_colors_table[name],
+                                   textcol = ifelse(farver::decode_colour(cellcol, "rgb", "hcl")[,"l"]>55, "black", "white")),
+                    edges = edges, directed = T)
+
+  use.aes = if (lighten.weak.edges) aes(colour = source_col_mod, width = w) else aes(colour = source_col, width = w)
+  w_range = min(edges$w):max(edges$w)
+  modified_blacks = colorspace::lighten(rep("black", length(w_range)), space = "combined",
+                                        (max(w_range)-w_range)/(max(w_range)-min(w_range)+1))
+  p = ggraph(gr_df, layout = layout) +
+    geom_edge_link(use.aes, lineend = "butt", linejoin = "mitre", linemitre = 4, show.legend = show_size_legend,
+                   arrow = arrows, end_cap = circle(vertex_connections_cap*1.5, "mm"), start_cap = circle(vertex_connections_cap, "mm"), key_glyph = "blank") +
+    geom_edge_loop(aes(colour = source_col, width = w, end_cap = circle(vertex_connections_cap, "mm"), start_cap = circle(vertex_connections_cap, "mm")), 
+                   show.legend = show_size_legend) +
+    scale_edge_width(size_legend_name, range = edge_size_range, breaks = function(x)min(x):max(x), 
+                     guide = guide_legend(override.aes = list(edge_alpha = 1., edge_colour = modified_blacks)))+#ifelse(lighten.weak.edges, list(edge_color = "red", edge_alpha = 0.5), list()))) +
+    scale_edge_color_identity() +
+    geom_node_point(aes(color = cellcol), size = vertex.size) +
+    scale_color_identity(aesthetics = c("color", "fill")) +
+    geom_node_label(aes(label = name, fill = cellcol, color = textcol),  label.size = NA, size = text.size) +
+    scale_x_continuous(expand = expansion(add = expand_abs[1], mult = expand_mult[1])) +
+    scale_y_continuous(expand = expansion(add = expand_abs[2], mult = expand_mult[2])) +
+    theme_void(base_size = legend.font.size)
+
+  return(p)
+}
+
+rescale_saturating = function(range = c(0., 1.), from = c(0., 1.), rel_saturating = 0.5){
+  force(range)
+  function(x) {
+    saturation_point = rel_saturating*diff(from) + from[1]
+    pmin((x - from[1]) / (saturation_point - from[1]) * diff(range) + range[1], range[2])
+  }
+}
+
+plot_scalebars = function(xstart, y, length = 200, label = paste0(length, "µm"),
+                          ticks_major = c(0., 1.), ticks_minor = c(0.25, .5, 0.75),
+                          tickheight_major = 10, tickheight_minor = 5,
+                          background_color = "white", background_alpha = 0.8, 
+                          background_height_adjust = 20, background_expansion = 5
+                          ){
+  return(list(
+    annotate("rect", fill=alpha(background_color, background_alpha), ymin = y-tickheight_major-background_expansion,
+             ymax = y+tickheight_major+background_expansion+background_height_adjust,
+             xmin = xstart-background_expansion, xmax = xstart+length+background_expansion),
+    annotate("segment", x = xstart, xend = xstart+length, y = y),
+    annotate("segment", x = xstart+(length*ticks_major), y = y-tickheight_major, yend = y+tickheight_major),
+    annotate("segment", x = xstart+(length*ticks_minor), y = y-tickheight_minor, yend = y+tickheight_minor),
+    annotate("text", x = xstart+(length/2), y = y+tickheight_major, hjust = 0.5, vjust = 0., label = label)
+  ))
+}
+
+cellcolors = c("Plasma_cells" = "#114477", #
+  "B_cells" = "#4477AA", #
+  "pDC" = "#77AADD", #
+  "cDC" =  "#228895", #
+  "cDC_1" =  "#228895",
+  "cDC_2" = "#55BBBB",
+  "Mac" = "#33D9B1", #
+  "NK" = "#B9E532", #
+  "T" = "#EE6310", #
+  "Tcyt_activated" = "#FF5013",
+  "Teff_mem" = "#EE6310",
+  "Treg" = "#F1831D",
+  "Tdp" = "#FEA514",
+  "VE" = "#AA4455", #
+  "VE_1" = "#661122",
+  "VE_2" = "#AA4455",
+  "LE" = "#EE7788", #
+  "Mast_cells" = "#FEEB88", #
+  "Pericyte" = "#BABABA",  #
+  "Pericyte_1" = "#BABABA",
+  "Pericyte_2" = "#808080",
+  "Fb" = "#AAAA44", #
+  "Fb_1" = "#777711",
+  "Fb_2" = "#AAAA44",
+  "Fb_3" = "#DDDD77",
+  "Kc" = "#9A2E71", #
+  "Kc_postmit" = "#9A2E71",
+  "Kc_premit" = "#FDA7DF",
+  "Eccrine_sweat_gland" = "#CC99BB", #
+  "Sebaceous_gland" = "#BB1199",
+  "Mel" = "#773311", #
+  "Mel_nc-like" = "#331100", #
+  "Mel_trans" = "#AA7744", #
+  "Mel_trans_melan" = "#773311",
+  "Other" = "#BABABA") 
+
+celltype_spiderplots_collapsing = c("Plasma_cells" = "Plasma_cells", 
+  "B_cells" = "B_cells", 
+  "pDC" = "pDC", 
+  "cDC" =  "cDC", 
+  "cDC_1" =  "cDC",
+  "cDC_2" = "cDC",
+  "Mac" = "Mac", 
+  "NK" = "NK", 
+  "T" = "T", 
+  "Tcyt_activated" = "Tcyt_activated",
+  "Teff_mem" = "Teff_mem",
+  "Treg" = "Treg",
+  "Tdp" = "Tdp",
+  "VE" = "Other", 
+  "VE_1" = "Other",
+  "VE_2" = "Other",
+  "LE" = "Other", 
+  "Mast_cells" = "Other", 
+  "Mel" = "Mel", 
+  "Mel_nc-like" = "Mel_nc-like", 
+  "Mel_trans" = "Mel_trans", 
+  "Mel_trans_melan" = "Mel_trans_melan",
+  "Pericyte" = "Other",  
+  "Pericyte_1" = "Other",
+  "Pericyte_2" = "Other",
+  "Fb" = "Fb", 
+  "Fb_1" = "Fb",
+  "Fb_2" = "Fb",
+  "Fb_3" = "Fb",
+  "Kc" = "Kc", 
+  "Kc_postmit" = "Kc",
+  "Kc_premit" = "Kc",
+  "Eccrine_sweat_gland" = "Other", 
+  "Sebaceous_gland" = "Other") 
+
+grid.newpage()
+pattern = grid::pattern(grid.pattern_stripe(density = 0.3, angle = 45, fill = "gray70", 
+                                            linewidth = 0., spacing = 0.25), 
+                        extend = "repeat", group = F)
+
+```
+
+```{r manifest-and-objects, echo=F}
+manifest = yaml.load_file("./assets/manifest.yaml")
+hd_samples = sapply(setNames(nm=manifest$HD_data_ids_used), function(s)paste0(
+  manifest$workdata_parent, manifest$HD_intermediates, "HD_preprocessed_", s, ".rds"))
+
+sample_data_existing = hd_samples[sapply(hd_samples, file.exists)]
+hd_objs_processed = lapply(sample_data_existing, readRDS)
+```
+
+Author: Florian Große (Last updated: `r Sys.Date()`)
+
+```{r samples, results='asis', echo = F}
+cat("HD Samples with processed data: ", paste(names(sample_data_existing), collapse = ", "), "\n")
+```
+
+# HD Plots
+
+## Basic Plots
+
+```{r hd-res-1, fig.width=8., fig.asp=0.75, fig.show = 'hold', echo=T, eval=T}
+obj_plt_data = lapply(hd_objs_processed, function(x)x$obs_for_alluvials)
+
+for (s in names(obj_plt_data)) {
+  curr_obj = obj_plt_data[[s]]
+  curr_obj$pass_QC = factor(as.character(curr_obj$pass_QC), 
+                            levels = c("TRUE", "FALSE"))
+  p = ggplot(curr_obj, aes(x_tr, y_tr,
+                         color = tacco_OT_celltype_broad  )) +
+  geom_point(size = 0.125) +
+  coord_equal(expand = F) + 
+  # scale_y_reverse() + # not consistent
+  ggtitle(paste0("Sample: ", s), "QC passed") +
+  mytheme() +
+  theme(legend.position = "bottom", 
+        panel.grid.major = element_line("grey60", linewidth = 0.15),
+        panel.grid.minor = element_line("grey80", linewidth = 0.1)) +
+  scale_color_manual(values = cellcolors) +
+  guides(color = guide_legend(title = "Celltype (broad)", 
+                              override.aes = list(size = 4))) +
+  facet_wrap(~pass_QC+labels_joint_source) # labels_joint_source, pass_QC
+  plot(p)
+}
+```
+
+## Liana
+
+```{r hd-liana-1, fig.width=8., fig.asp=ceiling(length(hd_objs_processed)/4), fig.show = 'hold', echo=T, eval=T}
+
+agg_rank_cutoff = 0.01
+
+liana_results = lapply(hd_objs_processed, function(x)x$liana_res)
+liana_aggs = lapply(liana_results, liana_aggregate)
+
+# patch custom celltype colors into the liana heatmap
+colored_liana_heatmap <- function(mat,
+                          font_size = 6,
+                          grid_text = FALSE,
+                          name = 'Frequency',
+                          pallette = c("white", "violetred2"),
+                          row_title = "Sender (Cell types)",
+                          column_title = "Receiver (Cell types)",
+                          cell_anno = NULL,
+                          ...){
+
+    if(grid_text){
+        grid_text <- function(j, i, x, y, width, height, fill) {
+            grid_text <- grid.text(sprintf("%d", mat[i, j]),
+                                   x, y, gp = gpar(fontsize = font_size*0.83))
+        }
+    } else{
+        grid_text <- NULL
+    }
+
+    # define Annotations and Barplots
+    if (is.null(cell_anno)) {
+      cell_anno <- unique(rownames(mat))
+      cell_anno <- grDevices::colorRampPalette(
+        (RColorBrewer::brewer.pal(n = 8, name = 'Dark2'))
+        )(length(cell_anno)) %>%
+        setNames(cell_anno)
+    } else {
+      cell_anno = cell_anno[unique(rownames(mat))]
+    }
+    
+    ## Annotations
+    ha_opts <- list(show_legend = FALSE,
+                    show_annotation_name = FALSE,
+                    col = list("anno"=cell_anno),
+                    simple_anno_size = grid::unit(0.25, "cm"))
+    column_ha <- exec("HeatmapAnnotation", anno = names(cell_anno), !!!ha_opts)
+    row_ha <- exec("rowAnnotation", anno = names(cell_anno), !!!ha_opts)
+
+    # Barplots
+    column_bar <- ComplexHeatmap::HeatmapAnnotation(
+        bar = .anno_barplot(colSums(mat),
+                            cell_anno,
+                            axis.font.size = font_size*0.5
+                            ),
+        annotation_name_gp = gpar(fontsize = font_size*0.5),
+        show_legend = FALSE,
+        show_annotation_name = FALSE)
+
+    row_bar <- ComplexHeatmap::rowAnnotation(
+        bar2 = .anno_barplot(rowSums(mat),
+                             cell_anno,
+                             font_size*0.5
+                             ),
+        gp = gpar(fill = cell_anno,
+                  col = cell_anno),
+        show_legend = FALSE,
+        show_annotation_name = FALSE)
+
+    # Heatmap
+    ComplexHeatmap::Heatmap(mat,
+                            col=colorRampPalette(pallette)(10),
+                            cluster_rows = FALSE,
+                            cluster_columns = FALSE,
+                            row_names_side = "left",
+                            top_annotation = column_bar,
+                            bottom_annotation = column_ha,
+                            right_annotation = row_bar,
+                            left_annotation = row_ha,
+                            row_title = row_title,
+                            row_names_gp = gpar(fontsize = font_size),
+                            row_title_gp = gpar(fontsize = font_size*1.2),
+                            column_names_gp = gpar(fontsize = font_size),
+                            column_title = column_title,
+                            column_title_gp = gpar(fontsize = font_size*1.2),
+                            column_title_side = "bottom",
+                            heatmap_legend_param = list(title_gp = gpar(fontsize = font_size*0.9,
+                                                                        fontface = 'bold'),
+                                                        border = NA,
+                                                        labels_gp = gpar(fontsize = font_size*0.9),
+                                                        grid_width = unit(2, "mm")),
+                            name = name,
+                            cell_fun = grid_text,
+                            ...
+    )
+
+}
+environment(colored_liana_heatmap) <- asNamespace("liana")
+assignInNamespace("liana_heatmap", colored_liana_heatmap, asNamespace("liana"))
+
+freqs = lapply(liana_aggs, function(x)grid::grid.grabExpr(ComplexHeatmap::draw(heat_freq(filter(x, aggregate_rank <= agg_rank_cutoff), cell_anno = cellcolors, font_size = 6))))
+
+plot_grid(plotlist = freqs, ncol = 2, labels = names(liana_aggs), 
+          hjust = 0., vjust = 1.1, label_size = 5)
+```
+
+LGALS1 -> PTPRC celltype connections across samples, min 2, 3 or 4 samples support
+
+```{r hd-liana-tables-prep, fig.width=3.54, fig.asp=0.7, echo=T, eval=T}
+# filter tables and arrange nicely
+filter_by_supporting_samples_and_reorder = function(df, nmin = 2){
+    # 2 stages because we don't want to discard any dots for interactions that
+    # have supporting data for any source-target combination and would appear in the plot
+    supported_interactions = df %>%
+      group_by(source, target, ligand.complex, receptor.complex) %>%
+      mutate(n = n(), LR = paste0(ligand.complex, "→", receptor.complex)) %>%
+      ungroup() %>%
+      filter(n >= nmin) %>%
+      pull(LR) %>%
+      unique()
+    ret = df %>%
+      mutate(LR = paste0(ligand.complex, "→", receptor.complex)) %>%
+      filter(LR %in% supported_interactions)
+    ret = ret %>%
+      group_by(source, target, ligand.complex, receptor.complex) %>%
+      mutate(mean_aggregate_rank = exp(mean(log(aggregate_rank)))) %>% # geometric mean of aggregate ranks
+      ungroup() %>%
+      arrange(mean_aggregate_rank)
+    return(ret)
+}
+
+visium_results = readr::read_csv("data/LRI_results_melanomas_with_annos.csv.gz")
+visium_results = visium_results %>%
+  select(mechanism, count_signif) %>%
+  filter(count_signif >= 2) %>%
+  mutate(interaction_liana_format = gsub(pattern = "—", replacement = "→", mechanism),
+         color = case_when(
+           interaction_liana_format == "LGALS1→PTPRC" ~ "#004488",
+           count_signif == 4 ~ "#AC4343",
+           count_signif == 3 ~ "#E1783E",
+           .default = "#EFBF44"
+         ))
+highlight_colors = setNames(visium_results$color, nm = visium_results$interaction_liana_format)
+
+# ref_collapsing_file = "assets/single_cell_reference/cell_type_state_matching.tsv"
+# celltype_collapsing = read_tsv(ref_collapsing_file)
+# sc_ref_markers = readRDS("data/sc_markers_Stubenvoll_Schmidt_2025.rds")
+# random_seed = 1234567
+
+min2_melnc = do.call(rbind, lapply(seq_along(liana_aggs), function(i){
+    agg = liana_aggs[[i]] %>%
+      filter(aggregate_rank<=0.01 &
+               source == "Mel_nc-like" &
+               target %in% c("NK", "Treg", "Tcyt_activated", "Tdp", "Teff_mem"))
+    agg$sample=names(liana_aggs)[i]
+    agg
+  })) %>% filter_by_supporting_samples_and_reorder(nmin = 2)
+
+min2_meltrans = do.call(rbind, lapply(seq_along(liana_aggs), function(i){
+    agg = liana_aggs[[i]] %>%
+      filter(aggregate_rank<=0.01 &
+               source == "Mel_trans" &
+               target %in% c("NK", "Treg", "Tcyt_activated", "Tdp", "Teff_mem"))
+    agg$sample=names(liana_aggs)[i]
+    agg
+  })) %>% filter_by_supporting_samples_and_reorder(nmin = 2)
+
+min2_meltransmelan = do.call(rbind, lapply(seq_along(liana_aggs), function(i){
+    agg = liana_aggs[[i]] %>%
+      filter(aggregate_rank<=0.01 &
+               source == "Mel_trans_melan" &
+               target %in% c("NK", "Treg", "Tcyt_activated", "Tdp", "Teff_mem"))
+    agg$sample=names(liana_aggs)[i]
+    agg
+  })) %>% filter_by_supporting_samples_and_reorder(nmin = 2)
+
+min3_melnc = do.call(rbind, lapply(seq_along(liana_aggs), function(i){
+    agg = liana_aggs[[i]] %>%
+      filter(aggregate_rank<=0.01 &
+               source == "Mel_nc-like" &
+               target %in% c("NK", "Treg", "Tcyt_activated", "Tdp", "Teff_mem"))
+    agg$sample=names(liana_aggs)[i]
+    agg
+  })) %>% filter_by_supporting_samples_and_reorder(nmin = 3)
+
+min3_meltrans = do.call(rbind, lapply(seq_along(liana_aggs), function(i){
+    agg = liana_aggs[[i]] %>%
+      filter(aggregate_rank<=0.01 &
+               source == "Mel_trans" &
+               target %in% c("NK", "Treg", "Tcyt_activated", "Tdp", "Teff_mem"))
+    agg$sample=names(liana_aggs)[i]
+    agg
+  })) %>% filter_by_supporting_samples_and_reorder(nmin = 3)
+
+min3_meltransmelan = do.call(rbind, lapply(seq_along(liana_aggs), function(i){
+    agg = liana_aggs[[i]] %>%
+      filter(aggregate_rank<=0.01 &
+               source == "Mel_trans_melan" &
+               target %in% c("NK", "Treg", "Tcyt_activated", "Tdp", "Teff_mem"))
+    agg$sample=names(liana_aggs)[i]
+    agg
+  })) %>% filter_by_supporting_samples_and_reorder(nmin = 3)
+
+# LGALS1-PTPRC connection
+lgals1_ptprc_dat = do.call(rbind, lapply(seq_along(liana_aggs), function(i){
+    agg = liana_aggs[[i]] %>%
+        filter(aggregate_rank<=0.01 & ligand.complex=="LGALS1" & receptor.complex=="PTPRC")
+    agg$sample=names(liana_aggs)[i]
+    agg
+}))
+# keep connections with at least 2 samples only
+lgals1_ptprc_dat = lgals1_ptprc_dat %>%
+  group_by(source, target) %>%
+  distinct() %>%
+  mutate(n = n()) %>%
+  summarize(aggregate_rank = mean(aggregate_rank),
+            n = first(n),
+            samples = paste(sample, collapse=", "),
+            .groups = "drop")
+
+set.seed(1234)
+celltypes_connection_plot(lgals1_ptprc_dat %>% filter(n>=2),
+                          celltype_colors_table = cellcolors, layout = "nicely",
+                          legend.font.size = 5, text.size = 2.4, 
+                          vertex.size = 8, vertex_connections_cap = 3, 
+                          edge_size_range = c(0.6,1.4), 
+                          arrows = arrow(type = "closed", angle = 25, length = unit(6, "pt")))
+
+celltypes_connection_plot(lgals1_ptprc_dat %>% filter(n>=2),
+                          celltype_colors_table = cellcolors, 
+                          layout = function(g)convert(g, to_undirected) %>%
+                            ggraph::create_layout("backbone") %>% select(x,y), 
+                          legend.font.size = 5, text.size = 2.4, 
+                          vertex.size = 8, vertex_connections_cap = 3, 
+                          edge_size_range = c(0.6,1.4), 
+                          arrows = arrow(type = "closed", angle = 25, length = unit(6, "pt")))
+
+celltypes_connection_plot(lgals1_ptprc_dat %>% filter(n>=3),
+                          celltype_colors_table = cellcolors, 
+                          layout = function(g)convert(g, to_undirected) %>%
+                            ggraph::create_layout("backbone") %>% select(x,y),
+                          legend.font.size = 5, text.size = 2.4, 
+                          vertex.size = 8, vertex_connections_cap = 3, 
+                          edge_size_range = c(0.6,1.4), 
+                          arrows = arrow(type = "closed", angle = 25, length = unit(6, "pt")))
+
+
+# for computing the aspect ratios
+fixed_asp_pct = 0.13
+variable_asp_pct = 0.021
+
+asp.nc.2 = fixed_asp_pct + length(unique(min2_melnc$LR))*variable_asp_pct
+asp.meltrans.2 = fixed_asp_pct + length(unique(min2_meltrans$LR))*variable_asp_pct
+asp.melan.2 = fixed_asp_pct + length(unique(min2_meltransmelan$LR))*variable_asp_pct
+asp.nc.3 = fixed_asp_pct + length(unique(min3_melnc$LR))*variable_asp_pct # 0.61 per 21 good
+asp.meltrans.3 = fixed_asp_pct + length(unique(min3_meltrans$LR))*variable_asp_pct
+asp.melan.3 = fixed_asp_pct + length(unique(min3_meltransmelan$LR))*variable_asp_pct
+```
+
+### Combined Tables Melanoma -> T/NK cells, min 2 samples support
+
+```{r hd-liana-tables-min2-Mel_nc-like, fig.width=4., fig.asp=asp.nc.2, fig.show = 'hold', echo=T, eval=T}
+bysample_dotplot(min2_melnc, 
+  cellcolors = cellcolors, highlight = highlight_colors,
+  Sample_order = names(liana_aggs), wrap_target_xaxis_sample = T,
+  legend.key.width = unit(4, "pt"), legend.key.height = unit(1, "null"))
+```
+
+```{r hd-liana-tables-min2-Mel_trans, fig.width=4., fig.asp=asp.meltrans.2, fig.show = 'hold', echo=T, eval=T}
+bysample_dotplot(min2_meltrans,
+  cellcolors = cellcolors, highlight = highlight_colors,
+  Sample_order = names(liana_aggs), wrap_target_xaxis_sample = T,
+  legend.key.width = unit(4, "pt"), legend.key.height = unit(1, "null"))
+```
+
+```{r hd-liana-tables-min2-Mel_trans_melan, fig.width=4., fig.asp=asp.melan.2, fig.show = 'hold', echo=T, eval=T}
+bysample_dotplot(min2_meltransmelan,
+  cellcolors = cellcolors, highlight = highlight_colors,
+  Sample_order = names(liana_aggs), wrap_target_xaxis_sample = T,
+  legend.key.width = unit(4, "pt"), legend.key.height = unit(1, "null"))
+```
+
+### Combined Tables Melanoma -> T/NK cells, min 3 samples support
+
+```{r hd-liana-tables-min3-Mel_nc-like, fig.width=3.54, fig.asp=asp.nc.3, fig.show = 'hold', echo=T, eval=T}
+bysample_dotplot(min3_melnc, 
+  cellcolors = cellcolors, highlight = highlight_colors,
+  Sample_order = names(liana_aggs), wrap_target_xaxis_sample = T,
+  legend.key.width = unit(4, "pt"), legend.key.height = unit(1, "null"))
+```
+
+```{r hd-liana-tables-min3-Mel_trans, fig.width=3.54, fig.asp=asp.meltrans.3, fig.show = 'hold', echo=T, eval=T}
+bysample_dotplot(min3_meltrans,
+  cellcolors = cellcolors, highlight = highlight_colors,
+  Sample_order = names(liana_aggs), wrap_target_xaxis_sample = T,
+  legend.key.width = unit(4, "pt"), legend.key.height = unit(1, "null"))
+```
+
+```{r hd-liana-tables-min3-Mel_trans_melan, fig.width=3.54, fig.asp=asp.melan.3, fig.show = 'hold', echo=T, eval=T}
+bysample_dotplot(min3_meltransmelan,
+  cellcolors = cellcolors, highlight = highlight_colors,
+  Sample_order = names(liana_aggs), wrap_target_xaxis_sample = T,
+  legend.key.width = unit(4, "pt"), legend.key.height = unit(1, "null"))
+```
+
+## NICHES
+
+### Sample HD_PM3 for use in the main figures
+
+```{r hd-niches-main, fig.width=16., fig.asp=0.7*0.88, fig.show = 'hold', echo=T, eval=T}
+  s = "HD_PM3"
+
+  curr_obj = hd_objs_processed[[s]]
+  df = curr_obj$NICHES_output$CellToNeighborhood@meta.data %>%
+    mutate(object_id = as.numeric(SendingCell)) %>%
+    left_join(curr_obj$obs_for_alluvials) %>%
+    mutate(x = x_tr, y = y_tr, 
+           filt = celltype_broad %in% c("Mel", "T", "NK"),
+           celltype_spider = setNames(celltype_spiderplots_collapsing[as.character(SendingType)], nm=NULL))
+  
+  df_edges = curr_obj$NICHES_output$CellToCellSpatial@meta.data %>%
+    mutate(edge_id = colnames(curr_obj$NICHES_output$CellToCellSpatial),
+           value = curr_obj$NICHES_output$CellToCellSpatial["LGALS1—PTPRC",]@assays$CellToCellSpatial@layers$data)
+  df_edges[c("sending_id", "receiving_id")] = str_split_fixed(df_edges$edge_id, pattern = "—", n = 2)
+  df_edges = df_edges %>%
+    left_join(df %>% transmute(sending_id = SendingCell, x.Sending = x, y.Sending = y)) %>%
+    left_join(df %>% transmute(receiving_id = SendingCell, x.Receiving = x, y.Receiving = y))
+ 
+  avg_edge_values = df_edges %>% 
+    group_by(sending_id) %>%
+    summarize(n = n(), valuesum = sum(value)) %>%
+    inner_join(df_edges %>% 
+    group_by(receiving_id) %>%
+    summarize(n = n(), valuesum = sum(value)), 
+    by = join_by(sending_id == receiving_id)) %>%
+    transmute(id = sending_id,
+              value = (valuesum.x + valuesum.y)/(n.x + n.y -1))
+
+  df = df %>% left_join(avg_edge_values, join_by(SendingCell == id))
+  df_edges_pos = df_edges %>% filter(value>0)
+
+# why are these values so weird? I choose nice 0.9-1 µm edge length 
+# frames, but in the wrong coordinate system, and just translated those to 
+# pixel coordinates +- rounding to nearest integer. Now they no longer look nice 
+  
+inset_xmin = 8711
+inset_xmax = 9611
+inset_ymin = 7351
+inset_ymax = 8251
+
+inset2_xmin = 4989
+inset2_xmax = 5989
+inset2_ymin = 6408
+inset2_ymax = 7408
+
+edgeval_lims = c(0., quantile(df$value[df$value>0], p = c(0.995)))
+edgeval_lims = ceiling(10*edgeval_lims)/10
+
+p_maxi = ggplot(df, aes(x = x, y = y)) +
+  mytheme() +
+  theme(axis.text = element_blank(), axis.title = element_blank(),
+        axis.ticks = element_blank(), legend.box.spacing = unit(8, "pt"), legend.text = element_text(size = 12),
+        legend.position = "inside", legend.position.inside = c(0.5, 0.02), legend.background = element_rect(fill=alpha("white", 0.8)),
+        legend.direction = "horizontal", legend.justification = c(0.5, 0.), legend.box = "horizontal", 
+        legend.justification.inside = "bottom", legend.title.position = "top", legend.title = element_text(face = "bold", size = 14), legend.justification.bottom = "left") +
+  geom_node_voronoi(mapping = aes(fill=bordering), normalize = F, max.radius = 50, color = NA, alpha = 0.2) +
+  scale_fill_manual(values = c("Background" = NA, "T/NK neighborhood" = "darkgreen",
+                               "Tumor neighborhood" = "darkred", "Tumor-Immune border" = "#DDDD22"),
+                    name = "Region", guide = guide_legend(nrow = 4, order = 2)) +
+  geom_point(aes(alpha = value, color = value), size = 3, stroke = 0.) +
+  continuous_scale("alpha", name = waiver(), palette = rescale_saturating(range = c(0., 0.95), rel_saturating = 0.45),
+                   limits = edgeval_lims, oob = scales::squish) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = edgeval_lims, oob = scales::squish) +
+  guides(alpha = guide_bins("Cell Average Interaction Value", order = 3,
+                   theme = theme(legend.key.width = rel(1.3),
+                                 legend.key = element_rect(fill = pattern, color = NA))),
+         color = guide_bins("Cell Average Interaction Value", show.limits = T, order = 3,
+                   override.aes = list(size = 6))) +
+  new_scale_color() +
+  geom_point(mapping = aes(x,y,color = celltype_spider), size = 0.08) +
+  scale_color_manual(breaks = names(cellcolors), values = cellcolors, name = "Celltype",
+                     guide = guide_legend(override.aes = list(size = 4), nrow = 8, order = 1)) +
+  coord_equal(expand = F, xlim = range(df$x), ylim = range(df$y)) +
+  annotate("segment", x = c(inset_xmin, inset_xmax), y = c(inset_ymin, inset_ymin), yend = c(inset_ymax, inset_ymax)) + # frame for inset
+  annotate("segment", y = c(inset_ymin, inset_ymax), x = c(inset_xmin, inset_xmin), xend = c(inset_xmax, inset_xmax)) +
+  annotate("segment", x = c(inset2_xmin, inset2_xmax), y = c(inset2_ymin, inset2_ymin), 
+           yend = c(inset2_ymax, inset2_ymax), colour = "#1122AF") + # frame for inset
+  annotate("segment", y = c(inset2_ymin, inset2_ymax), x = c(inset2_xmin, inset2_xmin), 
+           xend = c(inset2_xmax, inset2_xmax), colour = "#1122AF") +
+  plot_scalebars(max(df$x)-1200, max(df$y)-300, length = 1000, label = "1mm",
+                 background_height_adjust = 70, tickheight_major = 30, background_expansion = 16,
+                 tickheight_minor = 12, ticks_minor = c(0.2, 0.4, 0.6, 0.8))
+  
+p_mini_1 = ggplot(df_edges_pos, aes(x = x.Sending, y = y.Sending,
+                           xend = x.Receiving, yend = y.Receiving)) +
+  geom_node_voronoi(data = df, mapping = aes(fill=bordering),
+                    normalize = F, max.radius = 25, color = NA, alpha = 0.2, show.legend = F) +
+  scale_fill_manual(values = c("Background" = NA, "T/NK neighborhood" = "darkgreen",
+                               "Tumor neighborhood" = "darkred", "Tumor-Immune border" = "#DDDD22"),
+                    name = "Region") +
+  new_scale_fill() +
+  geom_point(data = df, mapping = aes(x,y, alpha = value, color = value),
+             inherit.aes = F, size = 3., show.legend = F) +
+  scale_alpha_continuous(range = c(0., 1.), limits = edgeval_lims, oob = scales::squish) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = edgeval_lims, oob = scales::squish, ) +
+  new_scale_color() +
+  geom_segment(mapping = aes(color = value), linewidth = 0.8) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = c(0., NA), name = "NICHES\nInteraction\nValue\n(Edges)") +
+  new_scale_color() +
+  geom_point(data = df, mapping = aes(x,y,color = celltype_spider),
+             inherit.aes = F, size = 0.8, show.legend = F) +
+  scale_color_manual(values = cellcolors) +
+  mytheme() +
+  coord_equal(xlim = c(inset_xmin, inset_xmax), ylim = c(inset_ymin, inset_ymax), expand = F) +
+  theme(axis.text = element_blank(), axis.title = element_blank(), axis.ticks = element_blank(),
+        legend.position = "inside", legend.position.inside = c(.99, .99), legend.justification.inside = c(1, 1),
+        legend.background = element_rect(fill=alpha("white", 0.8)), legend.key.height = unit(2, "lines"),
+        plot.margin = margin(0,0,0,0, unit = "pt"), panel.background = element_blank(), legend.text = element_text(size = 12), legend.margin = margin(2,2,4,2, "pt"),
+        panel.border = element_rect(fill = NA, color = "black", linewidth = 2), legend.title = element_text(face = "bold", size = 14)) +
+  plot_scalebars(inset_xmax-220, inset_ymin+20)
+
+
+p_mini_2 = ggplot(df_edges_pos, aes(x = x.Sending, y = y.Sending,
+                           xend = x.Receiving, yend = y.Receiving)) +
+  geom_node_voronoi(data = df, mapping = aes(fill=bordering),
+                    normalize = F, max.radius = 25, color = NA, alpha = 0.2, show.legend = F) +
+  scale_fill_manual(values = c("Background" = NA, "T/NK neighborhood" = "darkgreen",
+                               "Tumor neighborhood" = "darkred", "Tumor-Immune border" = "#DDDD22"),
+                    name = "Region") +
+  new_scale_fill() +
+  geom_point(data = df, mapping = aes(x,y, alpha = value, color = value),
+             inherit.aes = F, size = 3., show.legend = F) +
+  scale_alpha_continuous(range = c(0., 1.), limits = edgeval_lims, oob = scales::squish) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = edgeval_lims, oob = scales::squish, ) +
+  new_scale_color() +
+  geom_segment(mapping = aes(color = value), linewidth = 0.8) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = c(0., NA), name = "NICHES\nInteraction\nValue\n(Edges)") +
+  new_scale_color() +
+  geom_point(data = df, mapping = aes(x,y,color = celltype_spider),
+             inherit.aes = F, size = 0.8, show.legend = F) +
+  scale_color_manual(values = cellcolors) +
+  mytheme() +
+  coord_equal(xlim = c(inset2_xmin, inset2_xmax), ylim = c(inset2_ymin, inset2_ymax), expand = F) +
+  theme(axis.text = element_blank(), axis.title = element_blank(), axis.ticks = element_blank(),
+        legend.position = "inside", legend.position.inside = c(.99, .99), legend.justification.inside = c(1, 1),
+        legend.background = element_rect(fill=alpha("white", 0.8)), legend.key.height = unit(2, "lines"),
+        plot.margin = margin(0,0,0,0, unit = "pt"), panel.background = element_blank(), legend.text = element_text(size = 12), legend.margin = margin(2,2,4,2, "pt"),
+        panel.border = element_rect(fill = NA, color = "#1122AF", linewidth = 2), legend.title = element_text(face = "bold", size = 14)) +
+  plot_scalebars(inset2_xmax-220, inset2_ymin+20, background_expansion = 5)
+
+wrap_plots(a = p_maxi, b = p_mini_1, c = p_mini_2,
+           design = "
+           aab
+           aac
+           ")
+```
+
+### HD_PM1
+
+```{r hd-niches-1, fig.width=16., fig.asp=0.7, fig.show = 'hold', echo=T, eval=T}
+  s = "HD_PM1"
+
+  curr_obj = hd_objs_processed[[s]]
+  df = curr_obj$NICHES_output$CellToNeighborhood@meta.data %>%
+    mutate(object_id = as.numeric(SendingCell)) %>%
+    left_join(curr_obj$obs_for_alluvials) %>%
+    mutate(x = x_tr, y = y_tr, 
+           filt = celltype_broad %in% c("Mel", "T", "NK"),
+           celltype_spider = setNames(celltype_spiderplots_collapsing[as.character(SendingType)], nm=NULL))
+  
+  df_edges = curr_obj$NICHES_output$CellToCellSpatial@meta.data %>%
+    mutate(edge_id = colnames(curr_obj$NICHES_output$CellToCellSpatial),
+           value = curr_obj$NICHES_output$CellToCellSpatial["LGALS1—PTPRC",]@assays$CellToCellSpatial@layers$data)
+  df_edges[c("sending_id", "receiving_id")] = str_split_fixed(df_edges$edge_id, pattern = "—", n = 2)
+  df_edges = df_edges %>%
+    left_join(df %>% transmute(sending_id = SendingCell, x.Sending = x, y.Sending = y)) %>%
+    left_join(df %>% transmute(receiving_id = SendingCell, x.Receiving = x, y.Receiving = y))
+ 
+  avg_edge_values = df_edges %>% 
+    group_by(sending_id) %>%
+    summarize(n = n(), valuesum = sum(value)) %>%
+    inner_join(df_edges %>% 
+    group_by(receiving_id) %>%
+    summarize(n = n(), valuesum = sum(value)), 
+    by = join_by(sending_id == receiving_id)) %>%
+    transmute(id = sending_id,
+              value = (valuesum.x + valuesum.y)/(n.x + n.y -1))
+
+  df = df %>% left_join(avg_edge_values, join_by(SendingCell == id))
+  df_edges_pos = df_edges %>% filter(value>0)
+
+inset_xmin = 3880
+inset_xmax = 4980
+inset_ymin = 4550
+inset_ymax = 5650
+
+inset2_xmin = 9905
+inset2_xmax = 10805
+inset2_ymin = 5445
+inset2_ymax = 6345
+
+edgeval_lims = c(0., quantile(df$value[df$value>0], p = c(0.995)))
+edgeval_lims = ceiling(10*edgeval_lims)/10
+
+p_maxi = ggplot(df, aes(x = x, y = y)) +
+  mytheme() +
+  theme(axis.text = element_blank(), axis.title = element_blank(),
+        axis.ticks = element_blank(), legend.box.spacing = unit(8, "pt"), legend.text = element_text(size = 12),
+        legend.position = "bottom", legend.direction = "horizontal", legend.box.margin = margin(l = 2, unit = "pt"),
+        legend.title.position = "top", legend.title = element_text(face = "bold", size = 14), legend.justification.bottom = "left") +
+  geom_node_voronoi(mapping = aes(fill=bordering), normalize = F, max.radius = 50, color = NA, alpha = 0.2) +
+  scale_fill_manual(values = c("Background" = NA, "T/NK neighborhood" = "darkgreen",
+                               "Tumor neighborhood" = "darkred", "Tumor-Immune border" = "#DDDD22"),
+                    name = "Region", guide = guide_legend(nrow = 2, order = 2)) +
+  geom_point(aes(alpha = value, color = value), size = 3, stroke = 0.) +
+  continuous_scale("alpha", name = waiver(), palette = rescale_saturating(range = c(0., 0.95), rel_saturating = 0.45),
+                   limits = edgeval_lims, oob = scales::squish) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = edgeval_lims, oob = scales::squish) +
+  guides(alpha = guide_bins("Cell Average Interaction Value", order = 3,
+                   theme = theme(legend.key.width = rel(1.3),
+                                 legend.key = element_rect(fill = pattern, color = NA))),
+         color = guide_bins("Cell Average Interaction Value", show.limits = T, order = 3,
+                   override.aes = list(size = 6))) +
+  new_scale_color() +
+  geom_point(mapping = aes(x,y,color = celltype_spider), size = 0.08) +
+  scale_color_manual(breaks = names(cellcolors), values = cellcolors, name = "Celltype",
+                     guide = guide_legend(override.aes = list(size = 4), nrow = 3, order = 1)) +
+  coord_equal(expand = F, xlim = range(df$x), ylim = range(df$y)) +
+  annotate("segment", x = c(inset_xmin, inset_xmax), y = c(inset_ymin, inset_ymin), yend = c(inset_ymax, inset_ymax)) + # frame for inset
+  annotate("segment", y = c(inset_ymin, inset_ymax), x = c(inset_xmin, inset_xmin), xend = c(inset_xmax, inset_xmax)) +
+  annotate("segment", x = c(inset2_xmin, inset2_xmax), y = c(inset2_ymin, inset2_ymin), 
+           yend = c(inset2_ymax, inset2_ymax), colour = "#1122AF") + # frame for inset
+  annotate("segment", y = c(inset2_ymin, inset2_ymax), x = c(inset2_xmin, inset2_xmin), 
+           xend = c(inset2_xmax, inset2_xmax), colour = "#1122AF") +
+  plot_scalebars(max(df$x)-1200, max(df$y)-300, length = 1000, label = "1mm",
+                 background_height_adjust = 70, tickheight_major = 30, background_expansion = 16,
+                 tickheight_minor = 12, ticks_minor = c(0.2, 0.4, 0.6, 0.8)) 
+  
+p_mini_1 = ggplot(df_edges_pos, aes(x = x.Sending, y = y.Sending,
+                           xend = x.Receiving, yend = y.Receiving)) +
+  geom_node_voronoi(data = df, mapping = aes(fill=bordering),
+                    normalize = F, max.radius = 25, color = NA, alpha = 0.2, show.legend = F) +
+  scale_fill_manual(values = c("Background" = NA, "T/NK neighborhood" = "darkgreen",
+                               "Tumor neighborhood" = "darkred", "Tumor-Immune border" = "#DDDD22"),
+                    name = "Region") +
+  new_scale_fill() +
+  geom_point(data = df, mapping = aes(x,y, alpha = value, color = value),
+             inherit.aes = F, size = 3., show.legend = F) +
+  scale_alpha_continuous(range = c(0., 1.), limits = edgeval_lims, oob = scales::squish) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = edgeval_lims, oob = scales::squish, ) +
+  new_scale_color() +
+  geom_segment(mapping = aes(color = value), linewidth = 0.8) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = c(0., NA), name = "NICHES\nInteraction\nValue\n(Edges)") +
+  new_scale_color() +
+  geom_point(data = df, mapping = aes(x,y,color = celltype_spider),
+             inherit.aes = F, size = 0.8, show.legend = F) +
+  scale_color_manual(values = cellcolors) +
+  mytheme() +
+  coord_equal(xlim = c(inset_xmin, inset_xmax), ylim = c(inset_ymin, inset_ymax), expand = F) +
+  theme(axis.text = element_blank(), axis.title = element_blank(), axis.ticks = element_blank(),
+        legend.position = "inside", legend.position.inside = c(.99, .99), legend.justification.inside = c(1, 1),
+        legend.background = element_rect(fill=alpha("white", 0.8)), legend.key.height = unit(2, "lines"), legend.margin = margin(2,2,4,2, "pt"),
+        plot.margin = margin(0,0,0,0, unit = "pt"), panel.background = element_blank(), legend.text = element_text(size = 12),
+        panel.border = element_rect(fill = NA, color = "black", linewidth = 2), legend.title = element_text(face = "bold", size = 14)) +
+  plot_scalebars(inset_xmax-210, inset_ymin+20)
+
+
+p_mini_2 = ggplot(df_edges_pos, aes(x = x.Sending, y = y.Sending,
+                           xend = x.Receiving, yend = y.Receiving)) +
+  geom_node_voronoi(data = df, mapping = aes(fill=bordering),
+                    normalize = F, max.radius = 25, color = NA, alpha = 0.2, show.legend = F) +
+  scale_fill_manual(values = c("Background" = NA, "T/NK neighborhood" = "darkgreen",
+                               "Tumor neighborhood" = "darkred", "Tumor-Immune border" = "#DDDD22"),
+                    name = "Region") +
+  new_scale_fill() +
+  geom_point(data = df, mapping = aes(x,y, alpha = value, color = value),
+             inherit.aes = F, size = 3., show.legend = F) +
+  scale_alpha_continuous(range = c(0., 1.), limits = edgeval_lims, oob = scales::squish) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = edgeval_lims, oob = scales::squish, ) +
+  new_scale_color() +
+  geom_segment(mapping = aes(color = value), linewidth = 0.8) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = c(0., NA), name = "NICHES\nInteraction\nValue\n(Edges)") +
+  new_scale_color() +
+  geom_point(data = df, mapping = aes(x,y,color = celltype_spider),
+             inherit.aes = F, size = 0.8, show.legend = F) +
+  scale_color_manual(values = cellcolors) +
+  mytheme() +
+  coord_equal(xlim = c(inset2_xmin, inset2_xmax), ylim = c(inset2_ymin, inset2_ymax), expand = F) +
+  theme(axis.text = element_blank(), axis.title = element_blank(), axis.ticks = element_blank(),
+        legend.position = "inside", legend.position.inside = c(.99, .99), legend.justification.inside = c(1, 1), legend.margin = margin(2,2,4,2, "pt"),
+        legend.background = element_rect(fill=alpha("white", 0.8)), legend.key.height = unit(2, "lines"),
+        plot.margin = margin(0,0,0,0, unit = "pt"), panel.background = element_blank(), legend.text = element_text(size = 12),
+        panel.border = element_rect(fill = NA, color = "#1122AF", linewidth = 2), legend.title = element_text(face = "bold", size = 14)) +
+  plot_scalebars(inset2_xmax-210, inset2_ymin+20)
+
+wrap_plots(a = p_maxi, b = p_mini_1, c = p_mini_2,
+           design = "
+           aab
+           aac
+           ")
+```
+
+### HD_PM2
+
+```{r hd-niches-2, fig.width=16., fig.asp=0.7, fig.show = 'hold', echo=T, eval=T}
+  s = "HD_PM2"
+
+  curr_obj = hd_objs_processed[[s]]
+  df = curr_obj$NICHES_output$CellToNeighborhood@meta.data %>%
+    mutate(object_id = as.numeric(SendingCell)) %>%
+    left_join(curr_obj$obs_for_alluvials) %>%
+    mutate(x = x_tr, y = y_tr, 
+           filt = celltype_broad %in% c("Mel", "T", "NK"),
+           celltype_spider = setNames(celltype_spiderplots_collapsing[as.character(SendingType)], nm=NULL))
+  
+  df_edges = curr_obj$NICHES_output$CellToCellSpatial@meta.data %>%
+    mutate(edge_id = colnames(curr_obj$NICHES_output$CellToCellSpatial),
+           value = curr_obj$NICHES_output$CellToCellSpatial["LGALS1—PTPRC",]@assays$CellToCellSpatial@layers$data)
+  df_edges[c("sending_id", "receiving_id")] = str_split_fixed(df_edges$edge_id, pattern = "—", n = 2)
+  df_edges = df_edges %>%
+    left_join(df %>% transmute(sending_id = SendingCell, x.Sending = x, y.Sending = y)) %>%
+    left_join(df %>% transmute(receiving_id = SendingCell, x.Receiving = x, y.Receiving = y))
+ 
+  avg_edge_values = df_edges %>% 
+    group_by(sending_id) %>%
+    summarize(n = n(), valuesum = sum(value)) %>%
+    inner_join(df_edges %>% 
+    group_by(receiving_id) %>%
+    summarize(n = n(), valuesum = sum(value)), 
+    by = join_by(sending_id == receiving_id)) %>%
+    transmute(id = sending_id,
+              value = (valuesum.x + valuesum.y)/(n.x + n.y -1))
+
+  df = df %>% left_join(avg_edge_values, join_by(SendingCell == id))
+  df_edges_pos = df_edges %>% filter(value>0)
+
+inset_xmin = 11324
+inset_xmax = 12324
+inset_ymin = 5952
+inset_ymax = 6952
+
+inset2_xmin = 8541
+inset2_xmax = 9541
+inset2_ymin = 6130
+inset2_ymax = 7130
+
+edgeval_lims = c(0., quantile(df$value[df$value>0], p = c(0.995)))
+edgeval_lims = ceiling(10*edgeval_lims)/10
+
+p_maxi = ggplot(df, aes(x = x, y = y)) +
+  mytheme() +
+  theme(axis.text = element_blank(), axis.title = element_blank(),
+        axis.ticks = element_blank(), legend.box.spacing = unit(8, "pt"), legend.text = element_text(size = 12),
+        legend.position = "bottom", legend.direction = "horizontal", legend.box.margin = margin(l = 2, unit = "pt"),
+        legend.title.position = "top", legend.title = element_text(face = "bold", size = 14), legend.justification.bottom = "left") +
+  geom_node_voronoi(mapping = aes(fill=bordering), normalize = F, max.radius = 50, color = NA, alpha = 0.2) +
+  scale_fill_manual(values = c("Background" = NA, "T/NK neighborhood" = "darkgreen",
+                               "Tumor neighborhood" = "darkred", "Tumor-Immune border" = "#DDDD22"),
+                    name = "Region", guide = guide_legend(nrow = 2, order = 2)) +
+  geom_point(aes(alpha = value, color = value), size = 3, stroke = 0.) +
+  continuous_scale("alpha", name = waiver(), palette = rescale_saturating(range = c(0., 0.9), rel_saturating = 0.4),
+                   limits = edgeval_lims, oob = scales::squish) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = edgeval_lims, oob = scales::squish) +
+  guides(alpha = guide_bins("Cell Average Interaction Value", order = 3,
+                   theme = theme(legend.key.width = rel(1.3),
+                                 legend.key = element_rect(fill = pattern, color = NA))),
+         color = guide_bins("Cell Average Interaction Value", show.limits = T, order = 3,
+                   override.aes = list(size = 6))) +
+  new_scale_color() +
+  geom_point(mapping = aes(x,y,color = celltype_spider), size = 0.08) +
+  scale_color_manual(breaks = names(cellcolors), values = cellcolors, name = "Celltype",
+                     guide = guide_legend(override.aes = list(size = 4), nrow = 3, order = 1)) +
+  coord_equal(expand = F, xlim = range(df$x), ylim = range(df$y)) +
+  annotate("segment", x = c(inset_xmin, inset_xmax), y = c(inset_ymin, inset_ymin), yend = c(inset_ymax, inset_ymax)) + # frame for inset
+  annotate("segment", y = c(inset_ymin, inset_ymax), x = c(inset_xmin, inset_xmin), xend = c(inset_xmax, inset_xmax)) +
+  annotate("segment", x = c(inset2_xmin, inset2_xmax), y = c(inset2_ymin, inset2_ymin), 
+           yend = c(inset2_ymax, inset2_ymax), colour = "#1122AF") + # frame for inset
+  annotate("segment", y = c(inset2_ymin, inset2_ymax), x = c(inset2_xmin, inset2_xmin), 
+           xend = c(inset2_xmax, inset2_xmax), colour = "#1122AF") +
+  plot_scalebars(max(df$x)-1200, max(df$y)-300, length = 1000, label = "1mm",
+                 background_height_adjust = 70, tickheight_major = 30, background_expansion = 16,
+                 tickheight_minor = 12, ticks_minor = c(0.2, 0.4, 0.6, 0.8)) 
+  
+p_mini_1 = ggplot(df_edges_pos, aes(x = x.Sending, y = y.Sending,
+                           xend = x.Receiving, yend = y.Receiving)) +
+  geom_node_voronoi(data = df, mapping = aes(fill=bordering),
+                    normalize = F, max.radius = 25, color = NA, alpha = 0.2, show.legend = F) +
+  scale_fill_manual(values = c("Background" = NA, "T/NK neighborhood" = "darkgreen",
+                               "Tumor neighborhood" = "darkred", "Tumor-Immune border" = "#DDDD22"),
+                    name = "Region") +
+  new_scale_fill() +
+  geom_point(data = df, mapping = aes(x,y, alpha = value, color = value),
+             inherit.aes = F, size = 3., show.legend = F) +
+  scale_alpha_continuous(range = c(0., 1.), limits = edgeval_lims, oob = scales::squish) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = edgeval_lims, oob = scales::squish, ) +
+  new_scale_color() +
+  geom_segment(mapping = aes(color = value), linewidth = 0.8) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = c(0., NA), name = "NICHES\nInteraction\nValue\n(Edges)") +
+  new_scale_color() +
+  geom_point(data = df, mapping = aes(x,y,color = celltype_spider),
+             inherit.aes = F, size = 0.8, show.legend = F) +
+  scale_color_manual(values = cellcolors) +
+  mytheme() +
+  coord_equal(xlim = c(inset_xmin, inset_xmax), ylim = c(inset_ymin, inset_ymax), expand = F) +
+  theme(axis.text = element_blank(), axis.title = element_blank(), axis.ticks = element_blank(),
+        legend.position = "inside", legend.position.inside = c(.99, .99), legend.justification.inside = c(1, 1),
+        legend.background = element_rect(fill=alpha("white", 0.8)), legend.key.height = unit(2, "lines"), legend.margin = margin(2,2,4,2, "pt"),
+        plot.margin = margin(0,0,0,0, unit = "pt"), panel.background = element_blank(), legend.text = element_text(size = 12),
+        panel.border = element_rect(fill = NA, color = "black", linewidth = 2), legend.title = element_text(face = "bold", size = 14)) +
+  plot_scalebars(inset_xmax-210, inset_ymin+20)
+
+
+p_mini_2 = ggplot(df_edges_pos, aes(x = x.Sending, y = y.Sending,
+                           xend = x.Receiving, yend = y.Receiving)) +
+  geom_node_voronoi(data = df, mapping = aes(fill=bordering),
+                    normalize = F, max.radius = 25, color = NA, alpha = 0.2, show.legend = F) +
+  scale_fill_manual(values = c("Background" = NA, "T/NK neighborhood" = "darkgreen",
+                               "Tumor neighborhood" = "darkred", "Tumor-Immune border" = "#DDDD22"),
+                    name = "Region") +
+  new_scale_fill() +
+  geom_point(data = df, mapping = aes(x,y, alpha = value, color = value),
+             inherit.aes = F, size = 3., show.legend = F) +
+  scale_alpha_continuous(range = c(0., 1.), limits = edgeval_lims, oob = scales::squish) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = edgeval_lims, oob = scales::squish, ) +
+  new_scale_color() +
+  geom_segment(mapping = aes(color = value), linewidth = 0.8) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = c(0., NA), name = "NICHES\nInteraction\nValue\n(Edges)") +
+  new_scale_color() +
+  geom_point(data = df, mapping = aes(x,y,color = celltype_spider),
+             inherit.aes = F, size = 0.8, show.legend = F) +
+  scale_color_manual(values = cellcolors) +
+  mytheme() +
+  coord_equal(xlim = c(inset2_xmin, inset2_xmax), ylim = c(inset2_ymin, inset2_ymax), expand = F) +
+  theme(axis.text = element_blank(), axis.title = element_blank(), axis.ticks = element_blank(),
+        legend.position = "inside", legend.position.inside = c(.99, .99), legend.justification.inside = c(1, 1),
+        legend.background = element_rect(fill=alpha("white", 0.8)), legend.key.height = unit(2, "lines"), legend.margin = margin(2,2,4,2, "pt"),
+        plot.margin = margin(0,0,0,0, unit = "pt"), panel.background = element_blank(), legend.text = element_text(size = 12),
+        panel.border = element_rect(fill = NA, color = "#1122AF", linewidth = 2), legend.title = element_text(face = "bold", size = 14)) +
+  plot_scalebars(inset2_xmax-210, inset2_ymin+20)
+
+wrap_plots(a = p_maxi, b = p_mini_1, c = p_mini_2,
+           design = "
+           aab
+           aac
+           ")
+```
+
+### HD_PM4
+
+```{r hd-niches-3, fig.width=16., fig.asp=0.7, fig.show = 'hold', echo=T, eval=T}
+  s = "HD_PM4"
+
+  curr_obj = hd_objs_processed[[s]]
+  df = curr_obj$NICHES_output$CellToNeighborhood@meta.data %>%
+    mutate(object_id = as.numeric(SendingCell)) %>%
+    left_join(curr_obj$obs_for_alluvials) %>%
+    mutate(x = x_tr, y = y_tr, 
+           filt = celltype_broad %in% c("Mel", "T", "NK"),
+           celltype_spider = setNames(celltype_spiderplots_collapsing[as.character(SendingType)], nm=NULL))
+  
+  df_edges = curr_obj$NICHES_output$CellToCellSpatial@meta.data %>%
+    mutate(edge_id = colnames(curr_obj$NICHES_output$CellToCellSpatial),
+           value = curr_obj$NICHES_output$CellToCellSpatial["LGALS1—PTPRC",]@assays$CellToCellSpatial@layers$data)
+  df_edges[c("sending_id", "receiving_id")] = str_split_fixed(df_edges$edge_id, pattern = "—", n = 2)
+  df_edges = df_edges %>%
+    left_join(df %>% transmute(sending_id = SendingCell, x.Sending = x, y.Sending = y)) %>%
+    left_join(df %>% transmute(receiving_id = SendingCell, x.Receiving = x, y.Receiving = y))
+ 
+  avg_edge_values = df_edges %>% 
+    group_by(sending_id) %>%
+    summarize(n = n(), valuesum = sum(value)) %>%
+    inner_join(df_edges %>% 
+    group_by(receiving_id) %>%
+    summarize(n = n(), valuesum = sum(value)), 
+    by = join_by(sending_id == receiving_id)) %>%
+    transmute(id = sending_id,
+              value = (valuesum.x + valuesum.y)/(n.x + n.y -1))
+
+  df = df %>% left_join(avg_edge_values, join_by(SendingCell == id))
+  df_edges_pos = df_edges %>% filter(value>0)
+
+inset_xmin = 7008
+inset_xmax = 8018
+inset_ymin = 5128
+inset_ymax = 6138
+
+inset2_xmin = 4823
+inset2_xmax = 5823
+inset2_ymin = 2682
+inset2_ymax = 3682
+
+edgeval_lims = c(0., quantile(df$value[df$value>0], p = c(0.995)))
+edgeval_lims = ceiling(10*edgeval_lims)/10
+
+p_maxi = ggplot(df, aes(x = x, y = y)) +
+  mytheme() +
+  theme(axis.text = element_blank(), axis.title = element_blank(),
+        axis.ticks = element_blank(), legend.box.spacing = unit(8, "pt"), legend.text = element_text(size = 12),
+        legend.position = "bottom", legend.direction = "horizontal", legend.box.margin = margin(l = 2, unit = "pt"),
+        legend.title.position = "top", legend.title = element_text(face = "bold", size = 14), legend.justification.bottom = "left") +
+  geom_node_voronoi(mapping = aes(fill=bordering), normalize = F, max.radius = 50, color = NA, alpha = 0.2) +
+  scale_fill_manual(values = c("Background" = NA, "T/NK neighborhood" = "darkgreen",
+                               "Tumor neighborhood" = "darkred", "Tumor-Immune border" = "#DDDD22"),
+                    name = "Region", guide = guide_legend(nrow = 2, order = 2)) +
+  geom_point(aes(alpha = value, color = value), size = 3, stroke = 0.) +
+  continuous_scale("alpha", name = waiver(), palette = rescale_saturating(range = c(0., 0.95), rel_saturating = 0.45),
+                   limits = edgeval_lims, oob = scales::squish) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = edgeval_lims, oob = scales::squish) +
+  guides(alpha = guide_bins("Cell Average Interaction Value", order = 3,
+                   theme = theme(legend.key.width = rel(1.3),
+                                 legend.key = element_rect(fill = pattern, color = NA))),
+         color = guide_bins("Cell Average Interaction Value", show.limits = T, order = 3,
+                   override.aes = list(size = 6))) +
+  new_scale_color() +
+  geom_point(mapping = aes(x,y,color = celltype_spider), size = 0.08) +
+  scale_color_manual(breaks = names(cellcolors), values = cellcolors, name = "Celltype",
+                     guide = guide_legend(override.aes = list(size = 4), nrow = 3, order = 1)) +
+  coord_equal(expand = F, xlim = range(df$x), ylim = range(df$y)) +
+  annotate("segment", x = c(inset_xmin, inset_xmax), y = c(inset_ymin, inset_ymin), yend = c(inset_ymax, inset_ymax)) + # frame for inset
+  annotate("segment", y = c(inset_ymin, inset_ymax), x = c(inset_xmin, inset_xmin), xend = c(inset_xmax, inset_xmax)) +
+  annotate("segment", x = c(inset2_xmin, inset2_xmax), y = c(inset2_ymin, inset2_ymin), 
+           yend = c(inset2_ymax, inset2_ymax), colour = "#1122AF") + # frame for inset
+  annotate("segment", y = c(inset2_ymin, inset2_ymax), x = c(inset2_xmin, inset2_xmin), 
+           xend = c(inset2_xmax, inset2_xmax), colour = "#1122AF") +
+  plot_scalebars(max(df$x)-1200, max(df$y)-300, length = 1000, label = "1mm",
+                 background_height_adjust = 70, tickheight_major = 30, background_expansion = 16,
+                 tickheight_minor = 12, ticks_minor = c(0.2, 0.4, 0.6, 0.8)) 
+  
+p_mini_1 = ggplot(df_edges_pos, aes(x = x.Sending, y = y.Sending,
+                           xend = x.Receiving, yend = y.Receiving)) +
+  geom_node_voronoi(data = df, mapping = aes(fill=bordering),
+                    normalize = F, max.radius = 25, color = NA, alpha = 0.2, show.legend = F) +
+  scale_fill_manual(values = c("Background" = NA, "T/NK neighborhood" = "darkgreen",
+                               "Tumor neighborhood" = "darkred", "Tumor-Immune border" = "#DDDD22"),
+                    name = "Region") +
+  new_scale_fill() +
+  geom_point(data = df, mapping = aes(x,y, alpha = value, color = value),
+             inherit.aes = F, size = 3., show.legend = F) +
+  scale_alpha_continuous(range = c(0., 1.), limits = edgeval_lims, oob = scales::squish) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = edgeval_lims, oob = scales::squish, ) +
+  new_scale_color() +
+  geom_segment(mapping = aes(color = value), linewidth = 0.8) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = c(0., NA), name = "NICHES\nInteraction\nValue\n(Edges)") +
+  new_scale_color() +
+  geom_point(data = df, mapping = aes(x,y,color = celltype_spider),
+             inherit.aes = F, size = 0.8, show.legend = F) +
+  scale_color_manual(values = cellcolors) +
+  mytheme() +
+  coord_equal(xlim = c(inset_xmin, inset_xmax), ylim = c(inset_ymin, inset_ymax), expand = F) +
+  theme(axis.text = element_blank(), axis.title = element_blank(), axis.ticks = element_blank(),
+        legend.position = "inside", legend.position.inside = c(.99, .99), legend.justification.inside = c(1, 1),
+        legend.background = element_rect(fill=alpha("white", 0.8)), legend.key.height = unit(2, "lines"), legend.margin = margin(2,2,4,2, "pt"),
+        plot.margin = margin(0,0,0,0, unit = "pt"), panel.background = element_blank(), legend.text = element_text(size = 12),
+        panel.border = element_rect(fill = NA, color = "black", linewidth = 2), legend.title = element_text(face = "bold", size = 14)) +
+  plot_scalebars(inset_xmax-210, inset_ymin+20)
+
+
+p_mini_2 = ggplot(df_edges_pos, aes(x = x.Sending, y = y.Sending,
+                           xend = x.Receiving, yend = y.Receiving)) +
+  geom_node_voronoi(data = df, mapping = aes(fill=bordering),
+                    normalize = F, max.radius = 25, color = NA, alpha = 0.2, show.legend = F) +
+  scale_fill_manual(values = c("Background" = NA, "T/NK neighborhood" = "darkgreen",
+                               "Tumor neighborhood" = "darkred", "Tumor-Immune border" = "#DDDD22"),
+                    name = "Region") +
+  new_scale_fill() +
+  geom_point(data = df, mapping = aes(x,y, alpha = value, color = value),
+             inherit.aes = F, size = 3., show.legend = F) +
+  scale_alpha_continuous(range = c(0., 1.), limits = edgeval_lims, oob = scales::squish) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = edgeval_lims, oob = scales::squish, ) +
+  new_scale_color() +
+  geom_segment(mapping = aes(color = value), linewidth = 0.8) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = c(0., NA), name = "NICHES\nInteraction\nValue\n(Edges)") +
+  new_scale_color() +
+  geom_point(data = df, mapping = aes(x,y,color = celltype_spider),
+             inherit.aes = F, size = 0.8, show.legend = F) +
+  scale_color_manual(values = cellcolors) +
+  mytheme() +
+  coord_equal(xlim = c(inset2_xmin, inset2_xmax), ylim = c(inset2_ymin, inset2_ymax), expand = F) +
+  theme(axis.text = element_blank(), axis.title = element_blank(), axis.ticks = element_blank(),
+        legend.position = "inside", legend.position.inside = c(.99, .99), legend.justification.inside = c(1, 1),
+        legend.background = element_rect(fill=alpha("white", 0.8)), legend.key.height = unit(2, "lines"), legend.margin = margin(2,2,4,2, "pt"),
+        plot.margin = margin(0,0,0,0, unit = "pt"), panel.background = element_blank(), legend.text = element_text(size = 12),
+        panel.border = element_rect(fill = NA, color = "#1122AF", linewidth = 2), legend.title = element_text(face = "bold", size = 14)) +
+  plot_scalebars(inset2_xmax-210, inset2_ymin+20)
+
+wrap_plots(a = p_maxi, b = p_mini_1, c = p_mini_2,
+           design = "
+           aab
+           aac
+           ")
+```
+
+### HD_MM1
+
+```{r hd-niches-4, fig.width=16., fig.asp=0.7, fig.show = 'hold', echo=T, eval=T}
+  s = "HD_MM1"
+
+  curr_obj = hd_objs_processed[[s]]
+  df = curr_obj$NICHES_output$CellToNeighborhood@meta.data %>%
+    mutate(object_id = as.numeric(SendingCell)) %>%
+    left_join(curr_obj$obs_for_alluvials) %>%
+    mutate(x = x_tr, y = y_tr, 
+           filt = celltype_broad %in% c("Mel", "T", "NK"),
+           celltype_spider = setNames(celltype_spiderplots_collapsing[as.character(SendingType)], nm=NULL))
+  
+  df_edges = curr_obj$NICHES_output$CellToCellSpatial@meta.data %>%
+    mutate(edge_id = colnames(curr_obj$NICHES_output$CellToCellSpatial),
+           value = curr_obj$NICHES_output$CellToCellSpatial["LGALS1—PTPRC",]@assays$CellToCellSpatial@layers$data)
+  df_edges[c("sending_id", "receiving_id")] = str_split_fixed(df_edges$edge_id, pattern = "—", n = 2)
+  df_edges = df_edges %>%
+    left_join(df %>% transmute(sending_id = SendingCell, x.Sending = x, y.Sending = y)) %>%
+    left_join(df %>% transmute(receiving_id = SendingCell, x.Receiving = x, y.Receiving = y))
+ 
+  avg_edge_values = df_edges %>% 
+    group_by(sending_id) %>%
+    summarize(n = n(), valuesum = sum(value)) %>%
+    inner_join(df_edges %>% 
+    group_by(receiving_id) %>%
+    summarize(n = n(), valuesum = sum(value)), 
+    by = join_by(sending_id == receiving_id)) %>%
+    transmute(id = sending_id,
+              value = (valuesum.x + valuesum.y)/(n.x + n.y -1))
+
+  df = df %>% left_join(avg_edge_values, join_by(SendingCell == id))
+  df_edges_pos = df_edges %>% filter(value>0)
+
+inset_xmin = -1989
+inset_xmax = -1039
+inset_ymin = -6801
+inset_ymax = -5851
+
+inset2_xmin = -4639
+inset2_xmax = -3689
+inset2_ymin = -6337
+inset2_ymax = -5387
+
+edgeval_lims = c(0., quantile(df$value[df$value>0], p = c(0.995)))
+edgeval_lims = ceiling(10*edgeval_lims)/10
+
+p_maxi = ggplot(df, aes(x = x, y = y)) +
+  mytheme() +
+  theme(axis.text = element_blank(), axis.title = element_blank(),
+        axis.ticks = element_blank(), legend.box.spacing = unit(8, "pt"), legend.text = element_text(size = 12),
+        legend.position = "bottom", legend.direction = "horizontal", legend.box.margin = margin(l = 2, unit = "pt"),
+        legend.title.position = "top", legend.title = element_text(face = "bold", size = 14), legend.justification.bottom = "left") +
+  geom_node_voronoi(mapping = aes(fill=bordering), normalize = F, max.radius = 50, color = NA, alpha = 0.2) +
+  scale_fill_manual(values = c("Background" = NA, "T/NK neighborhood" = "darkgreen",
+                               "Tumor neighborhood" = "darkred", "Tumor-Immune border" = "#DDDD22"),
+                    name = "Region", guide = guide_legend(nrow = 2, order = 2)) +
+  geom_point(aes(alpha = value, color = value), size = 3, stroke = 0.) +
+  continuous_scale("alpha", name = waiver(), palette = rescale_saturating(range = c(0., 0.95), rel_saturating = 0.45),
+                   limits = edgeval_lims, oob = scales::squish) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = edgeval_lims, oob = scales::squish) +
+  guides(alpha = guide_bins("Cell Average Interaction Value", order = 3,
+                   theme = theme(legend.key.width = rel(1.3),
+                                 legend.key = element_rect(fill = pattern, color = NA))),
+         color = guide_bins("Cell Average Interaction Value", show.limits = T, order = 3,
+                   override.aes = list(size = 6))) +
+  new_scale_color() +
+  geom_point(mapping = aes(x,y,color = celltype_spider), size = 0.08) +
+  scale_color_manual(breaks = names(cellcolors), values = cellcolors, name = "Celltype",
+                     guide = guide_legend(override.aes = list(size = 4), nrow = 3, order = 1)) +
+  coord_equal(expand = F, xlim = range(df$x), ylim = range(df$y)) +
+  annotate("segment", x = c(inset_xmin, inset_xmax), y = c(inset_ymin, inset_ymin), yend = c(inset_ymax, inset_ymax)) + # frame for inset
+  annotate("segment", y = c(inset_ymin, inset_ymax), x = c(inset_xmin, inset_xmin), xend = c(inset_xmax, inset_xmax)) +
+  annotate("segment", x = c(inset2_xmin, inset2_xmax), y = c(inset2_ymin, inset2_ymin), 
+           yend = c(inset2_ymax, inset2_ymax), colour = "#1122AF") + # frame for inset
+  annotate("segment", y = c(inset2_ymin, inset2_ymax), x = c(inset2_xmin, inset2_xmin), 
+           xend = c(inset2_xmax, inset2_xmax), colour = "#1122AF") +
+  plot_scalebars(max(df$x)-1200, max(df$y)-300, length = 1000, label = "1mm",
+                 background_height_adjust = 70, tickheight_major = 30, background_expansion = 16,
+                 tickheight_minor = 12, ticks_minor = c(0.2, 0.4, 0.6, 0.8)) 
+  
+p_mini_1 = ggplot(df_edges_pos, aes(x = x.Sending, y = y.Sending,
+                           xend = x.Receiving, yend = y.Receiving)) +
+  geom_node_voronoi(data = df, mapping = aes(fill=bordering),
+                    normalize = F, max.radius = 25, color = NA, alpha = 0.2, show.legend = F) +
+  scale_fill_manual(values = c("Background" = NA, "T/NK neighborhood" = "darkgreen",
+                               "Tumor neighborhood" = "darkred", "Tumor-Immune border" = "#DDDD22"),
+                    name = "Region") +
+  new_scale_fill() +
+  geom_point(data = df, mapping = aes(x,y, alpha = value, color = value),
+             inherit.aes = F, size = 3., show.legend = F) +
+  scale_alpha_continuous(range = c(0., 1.), limits = edgeval_lims, oob = scales::squish) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = edgeval_lims, oob = scales::squish, ) +
+  new_scale_color() +
+  geom_segment(mapping = aes(color = value), linewidth = 0.8) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = c(0., NA), name = "NICHES\nInteraction\nValue\n(Edges)") +
+  new_scale_color() +
+  geom_point(data = df, mapping = aes(x,y,color = celltype_spider),
+             inherit.aes = F, size = 0.8, show.legend = F) +
+  scale_color_manual(values = cellcolors) +
+  mytheme() +
+  coord_equal(xlim = c(inset_xmin, inset_xmax), ylim = c(inset_ymin, inset_ymax), expand = F) +
+  theme(axis.text = element_blank(), axis.title = element_blank(), axis.ticks = element_blank(),
+        legend.position = "inside", legend.position.inside = c(.99, .99), legend.justification.inside = c(1, 1),
+        legend.background = element_rect(fill=alpha("white", 0.8)), legend.key.height = unit(2, "lines"), legend.margin = margin(2,2,4,2, "pt"),
+        plot.margin = margin(0,0,0,0, unit = "pt"), panel.background = element_blank(), legend.text = element_text(size = 12),
+        panel.border = element_rect(fill = NA, color = "black", linewidth = 2), legend.title = element_text(face = "bold", size = 14)) +
+  plot_scalebars(inset_xmax-210, inset_ymin+20)
+
+
+p_mini_2 = ggplot(df_edges_pos, aes(x = x.Sending, y = y.Sending,
+                           xend = x.Receiving, yend = y.Receiving)) +
+  geom_node_voronoi(data = df, mapping = aes(fill=bordering),
+                    normalize = F, max.radius = 25, color = NA, alpha = 0.2, show.legend = F) +
+  scale_fill_manual(values = c("Background" = NA, "T/NK neighborhood" = "darkgreen",
+                               "Tumor neighborhood" = "darkred", "Tumor-Immune border" = "#DDDD22"),
+                    name = "Region") +
+  new_scale_fill() +
+  geom_point(data = df, mapping = aes(x,y, alpha = value, color = value),
+             inherit.aes = F, size = 3., show.legend = F) +
+  scale_alpha_continuous(range = c(0., 1.), limits = edgeval_lims, oob = scales::squish) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = edgeval_lims, oob = scales::squish, ) +
+  new_scale_color() +
+  geom_segment(mapping = aes(color = value), linewidth = 0.8) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = c(0., NA), name = "NICHES\nInteraction\nValue\n(Edges)") +
+  new_scale_color() +
+  geom_point(data = df, mapping = aes(x,y,color = celltype_spider),
+             inherit.aes = F, size = 0.8, show.legend = F) +
+  scale_color_manual(values = cellcolors) +
+  mytheme() +
+  coord_equal(xlim = c(inset2_xmin, inset2_xmax), ylim = c(inset2_ymin, inset2_ymax), expand = F) +
+  theme(axis.text = element_blank(), axis.title = element_blank(), axis.ticks = element_blank(),
+        legend.position = "inside", legend.position.inside = c(.99, .99), legend.justification.inside = c(1, 1),
+        legend.background = element_rect(fill=alpha("white", 0.8)), legend.key.height = unit(2, "lines"), legend.margin = margin(2,2,4,2, "pt"),
+        plot.margin = margin(0,0,0,0, unit = "pt"), panel.background = element_blank(), legend.text = element_text(size = 12),
+        panel.border = element_rect(fill = NA, color = "#1122AF", linewidth = 2), legend.title = element_text(face = "bold", size = 14)) +
+  plot_scalebars(inset2_xmax-210, inset2_ymin+20)
+
+wrap_plots(a = p_maxi, b = p_mini_1, c = p_mini_2,
+           design = "
+           aab
+           aac
+           ")
+```
+
+### HD_MM2
+
+```{r hd-niches-5, fig.width=16., fig.asp=0.7, fig.show = 'hold', echo=T, eval=T}
+  s = "HD_MM2"
+
+  curr_obj = hd_objs_processed[[s]]
+  df = curr_obj$NICHES_output$CellToNeighborhood@meta.data %>%
+    mutate(object_id = as.numeric(SendingCell)) %>%
+    left_join(curr_obj$obs_for_alluvials) %>%
+    mutate(x = x_tr, y = y_tr, 
+           filt = celltype_broad %in% c("Mel", "T", "NK"),
+           celltype_spider = setNames(celltype_spiderplots_collapsing[as.character(SendingType)], nm=NULL))
+  
+  df_edges = curr_obj$NICHES_output$CellToCellSpatial@meta.data %>%
+    mutate(edge_id = colnames(curr_obj$NICHES_output$CellToCellSpatial),
+           value = curr_obj$NICHES_output$CellToCellSpatial["LGALS1—PTPRC",]@assays$CellToCellSpatial@layers$data)
+  df_edges[c("sending_id", "receiving_id")] = str_split_fixed(df_edges$edge_id, pattern = "—", n = 2)
+  df_edges = df_edges %>%
+    left_join(df %>% transmute(sending_id = SendingCell, x.Sending = x, y.Sending = y)) %>%
+    left_join(df %>% transmute(receiving_id = SendingCell, x.Receiving = x, y.Receiving = y))
+ 
+  avg_edge_values = df_edges %>% 
+    group_by(sending_id) %>%
+    summarize(n = n(), valuesum = sum(value)) %>%
+    inner_join(df_edges %>% 
+    group_by(receiving_id) %>%
+    summarize(n = n(), valuesum = sum(value)), 
+    by = join_by(sending_id == receiving_id)) %>%
+    transmute(id = sending_id,
+              value = (valuesum.x + valuesum.y)/(n.x + n.y -1))
+
+  df = df %>% left_join(avg_edge_values, join_by(SendingCell == id))
+  df_edges_pos = df_edges %>% filter(value>0)
+
+inset_xmin = 8224
+inset_xmax = 9174
+inset_ymin = 7368
+inset_ymax = 8318
+
+inset2_xmin = 6957
+inset2_xmax = 7907
+inset2_ymin = 9568
+inset2_ymax = 10518
+
+edgeval_lims = c(0., quantile(df$value[df$value>0], p = c(0.995)))
+edgeval_lims = ceiling(10*edgeval_lims)/10
+
+p_maxi = ggplot(df, aes(x = x, y = y)) +
+  mytheme() +
+  theme(axis.text = element_blank(), axis.title = element_blank(),
+        axis.ticks = element_blank(), legend.box.spacing = unit(8, "pt"), legend.text = element_text(size = 12),
+        legend.position = "bottom", legend.direction = "horizontal", legend.box.margin = margin(l = 2, unit = "pt"),
+        legend.title.position = "top", legend.title = element_text(face = "bold", size = 14), legend.justification.bottom = "left") +
+  geom_node_voronoi(mapping = aes(fill=bordering), normalize = F, max.radius = 50, color = NA, alpha = 0.2) +
+  scale_fill_manual(values = c("Background" = NA, "T/NK neighborhood" = "darkgreen",
+                               "Tumor neighborhood" = "darkred", "Tumor-Immune border" = "#DDDD22"),
+                    name = "Region", guide = guide_legend(nrow = 2, order = 2)) +
+  geom_point(aes(alpha = value, color = value), size = 3, stroke = 0.) +
+  continuous_scale("alpha", name = waiver(), palette = rescale_saturating(range = c(0., 0.95), rel_saturating = 0.45),
+                   limits = edgeval_lims, oob = scales::squish) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = edgeval_lims, oob = scales::squish) +
+  guides(alpha = guide_bins("Cell Average Interaction Value", order = 3,
+                   theme = theme(legend.key.width = rel(1.3),
+                                 legend.key = element_rect(fill = pattern, color = NA))),
+         color = guide_bins("Cell Average Interaction Value", show.limits = T, order = 3,
+                   override.aes = list(size = 6))) +
+  new_scale_color() +
+  geom_point(mapping = aes(x,y,color = celltype_spider), size = 0.08) +
+  scale_color_manual(breaks = names(cellcolors), values = cellcolors, name = "Celltype",
+                     guide = guide_legend(override.aes = list(size = 4), nrow = 3, order = 1)) +
+  coord_equal(expand = F, xlim = range(df$x), ylim = range(df$y)) +
+  annotate("segment", x = c(inset_xmin, inset_xmax), y = c(inset_ymin, inset_ymin), yend = c(inset_ymax, inset_ymax)) + # frame for inset
+  annotate("segment", y = c(inset_ymin, inset_ymax), x = c(inset_xmin, inset_xmin), xend = c(inset_xmax, inset_xmax)) +
+  annotate("segment", x = c(inset2_xmin, inset2_xmax), y = c(inset2_ymin, inset2_ymin), 
+           yend = c(inset2_ymax, inset2_ymax), colour = "#1122AF") + # frame for inset
+  annotate("segment", y = c(inset2_ymin, inset2_ymax), x = c(inset2_xmin, inset2_xmin), 
+           xend = c(inset2_xmax, inset2_xmax), colour = "#1122AF") +
+  plot_scalebars(max(df$x)-1200, max(df$y)-300, length = 1000, label = "1mm",
+                 background_height_adjust = 70, tickheight_major = 30, background_expansion = 16,
+                 tickheight_minor = 12, ticks_minor = c(0.2, 0.4, 0.6, 0.8)) 
+  
+p_mini_1 = ggplot(df_edges_pos, aes(x = x.Sending, y = y.Sending,
+                           xend = x.Receiving, yend = y.Receiving)) +
+  geom_node_voronoi(data = df, mapping = aes(fill=bordering),
+                    normalize = F, max.radius = 25, color = NA, alpha = 0.2, show.legend = F) +
+  scale_fill_manual(values = c("Background" = NA, "T/NK neighborhood" = "darkgreen",
+                               "Tumor neighborhood" = "darkred", "Tumor-Immune border" = "#DDDD22"),
+                    name = "Region") +
+  new_scale_fill() +
+  geom_point(data = df, mapping = aes(x,y, alpha = value, color = value),
+             inherit.aes = F, size = 3., show.legend = F) +
+  scale_alpha_continuous(range = c(0., 1.), limits = edgeval_lims, oob = scales::squish) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = edgeval_lims, oob = scales::squish, ) +
+  new_scale_color() +
+  geom_segment(mapping = aes(color = value), linewidth = 0.8) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = c(0., NA), name = "NICHES\nInteraction\nValue\n(Edges)") +
+  new_scale_color() +
+  geom_point(data = df, mapping = aes(x,y,color = celltype_spider),
+             inherit.aes = F, size = 0.8, show.legend = F) +
+  scale_color_manual(values = cellcolors) +
+  mytheme() +
+  coord_equal(xlim = c(inset_xmin, inset_xmax), ylim = c(inset_ymin, inset_ymax), expand = F) +
+  theme(axis.text = element_blank(), axis.title = element_blank(), axis.ticks = element_blank(),
+        legend.position = "inside", legend.position.inside = c(.99, .99), legend.justification.inside = c(1, 1),
+        legend.background = element_rect(fill=alpha("white", 0.8)), legend.key.height = unit(2, "lines"), legend.margin = margin(2,2,4,2, "pt"),
+        plot.margin = margin(0,0,0,0, unit = "pt"), panel.background = element_blank(), legend.text = element_text(size = 12),
+        panel.border = element_rect(fill = NA, color = "black", linewidth = 2), legend.title = element_text(face = "bold", size = 14)) +
+  plot_scalebars(inset_xmax-210, inset_ymin+20)
+
+
+p_mini_2 = ggplot(df_edges_pos, aes(x = x.Sending, y = y.Sending,
+                           xend = x.Receiving, yend = y.Receiving)) +
+  geom_node_voronoi(data = df, mapping = aes(fill=bordering),
+                    normalize = F, max.radius = 25, color = NA, alpha = 0.2, show.legend = F) +
+  scale_fill_manual(values = c("Background" = NA, "T/NK neighborhood" = "darkgreen",
+                               "Tumor neighborhood" = "darkred", "Tumor-Immune border" = "#DDDD22"),
+                    name = "Region") +
+  new_scale_fill() +
+  geom_point(data = df, mapping = aes(x,y, alpha = value, color = value),
+             inherit.aes = F, size = 3., show.legend = F) +
+  scale_alpha_continuous(range = c(0., 1.), limits = edgeval_lims, oob = scales::squish) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = edgeval_lims, oob = scales::squish, ) +
+  new_scale_color() +
+  geom_segment(mapping = aes(color = value), linewidth = 0.8) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = c(0., NA), name = "NICHES\nInteraction\nValue\n(Edges)") +
+  new_scale_color() +
+  geom_point(data = df, mapping = aes(x,y,color = celltype_spider),
+             inherit.aes = F, size = 0.8, show.legend = F) +
+  scale_color_manual(values = cellcolors) +
+  mytheme() +
+  coord_equal(xlim = c(inset2_xmin, inset2_xmax), ylim = c(inset2_ymin, inset2_ymax), expand = F) +
+  theme(axis.text = element_blank(), axis.title = element_blank(), axis.ticks = element_blank(),
+        legend.position = "inside", legend.position.inside = c(.99, .99), legend.justification.inside = c(1, 1),
+        legend.background = element_rect(fill=alpha("white", 0.8)), legend.key.height = unit(2, "lines"), legend.margin = margin(2,2,4,2, "pt"),
+        plot.margin = margin(0,0,0,0, unit = "pt"), panel.background = element_blank(), legend.text = element_text(size = 12),
+        panel.border = element_rect(fill = NA, color = "#1122AF", linewidth = 2), legend.title = element_text(face = "bold", size = 14)) +
+  plot_scalebars(inset2_xmax-210, inset2_ymin+20)
+
+wrap_plots(a = p_maxi, b = p_mini_1, c = p_mini_2,
+           design = "
+           aab
+           aac
+           ")
+```
+
+### HD_MM3
+
+```{r hd-niches-6, fig.width=16., fig.asp=0.7, fig.show = 'hold', echo=T, eval=T}
+  s = "HD_MM3"
+
+  curr_obj = hd_objs_processed[[s]]
+  df = curr_obj$NICHES_output$CellToNeighborhood@meta.data %>%
+    mutate(object_id = as.numeric(SendingCell)) %>%
+    left_join(curr_obj$obs_for_alluvials) %>%
+    mutate(x = x_tr, y = y_tr, 
+           filt = celltype_broad %in% c("Mel", "T", "NK"),
+           celltype_spider = setNames(celltype_spiderplots_collapsing[as.character(SendingType)], nm=NULL))
+  
+  df_edges = curr_obj$NICHES_output$CellToCellSpatial@meta.data %>%
+    mutate(edge_id = colnames(curr_obj$NICHES_output$CellToCellSpatial),
+           value = curr_obj$NICHES_output$CellToCellSpatial["LGALS1—PTPRC",]@assays$CellToCellSpatial@layers$data)
+  df_edges[c("sending_id", "receiving_id")] = str_split_fixed(df_edges$edge_id, pattern = "—", n = 2)
+  df_edges = df_edges %>%
+    left_join(df %>% transmute(sending_id = SendingCell, x.Sending = x, y.Sending = y)) %>%
+    left_join(df %>% transmute(receiving_id = SendingCell, x.Receiving = x, y.Receiving = y))
+ 
+  avg_edge_values = df_edges %>% 
+    group_by(sending_id) %>%
+    summarize(n = n(), valuesum = sum(value)) %>%
+    inner_join(df_edges %>% 
+    group_by(receiving_id) %>%
+    summarize(n = n(), valuesum = sum(value)), 
+    by = join_by(sending_id == receiving_id)) %>%
+    transmute(id = sending_id,
+              value = (valuesum.x + valuesum.y)/(n.x + n.y -1))
+
+  df = df %>% left_join(avg_edge_values, join_by(SendingCell == id))
+  df_edges_pos = df_edges %>% filter(value>0)
+
+inset_xmin = -4764
+inset_xmax = -3814
+inset_ymin = -3249
+inset_ymax = -2299
+
+inset2_xmin = -7594
+inset2_xmax = -6657
+inset2_ymin = -6471
+inset2_ymax = -5534
+
+edgeval_lims = c(0., quantile(df$value[df$value>0], p = c(0.995)))
+edgeval_lims = ceiling(10*edgeval_lims)/10
+
+p_maxi = ggplot(df, aes(x = x, y = y)) +
+  mytheme() +
+  theme(axis.text = element_blank(), axis.title = element_blank(),
+        axis.ticks = element_blank(), legend.box.spacing = unit(8, "pt"), legend.text = element_text(size = 12),
+        legend.position = "bottom", legend.direction = "horizontal", legend.box.margin = margin(l = 2, unit = "pt"),
+        legend.title.position = "top", legend.title = element_text(face = "bold", size = 14), legend.justification.bottom = "left") +
+  geom_node_voronoi(mapping = aes(fill=bordering), normalize = F, max.radius = 50, color = NA, alpha = 0.2) +
+  scale_fill_manual(values = c("Background" = NA, "T/NK neighborhood" = "darkgreen",
+                               "Tumor neighborhood" = "darkred", "Tumor-Immune border" = "#DDDD22"),
+                    name = "Region", guide = guide_legend(nrow = 2, order = 2)) +
+  geom_point(aes(alpha = value, color = value), size = 3, stroke = 0.) +
+  continuous_scale("alpha", name = waiver(), palette = rescale_saturating(range = c(0., 0.95), rel_saturating = 0.45),
+                   limits = edgeval_lims, oob = scales::squish) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = edgeval_lims, oob = scales::squish) +
+  guides(alpha = guide_bins("Cell Average Interaction Value", order = 3,
+                   theme = theme(legend.key.width = rel(1.3),
+                                 legend.key = element_rect(fill = pattern, color = NA))),
+         color = guide_bins("Cell Average Interaction Value", show.limits = T, order = 3,
+                   override.aes = list(size = 6))) +
+  new_scale_color() +
+  geom_point(mapping = aes(x,y,color = celltype_spider), size = 0.08) +
+  scale_color_manual(breaks = names(cellcolors), values = cellcolors, name = "Celltype",
+                     guide = guide_legend(override.aes = list(size = 4), nrow = 3, order = 1)) +
+  coord_equal(expand = F, xlim = range(df$x), ylim = range(df$y)) +
+  annotate("segment", x = c(inset_xmin, inset_xmax), y = c(inset_ymin, inset_ymin), yend = c(inset_ymax, inset_ymax)) + # frame for inset
+  annotate("segment", y = c(inset_ymin, inset_ymax), x = c(inset_xmin, inset_xmin), xend = c(inset_xmax, inset_xmax)) +
+  annotate("segment", x = c(inset2_xmin, inset2_xmax), y = c(inset2_ymin, inset2_ymin), 
+           yend = c(inset2_ymax, inset2_ymax), colour = "#1122AF") + # frame for inset
+  annotate("segment", y = c(inset2_ymin, inset2_ymax), x = c(inset2_xmin, inset2_xmin), 
+           xend = c(inset2_xmax, inset2_xmax), colour = "#1122AF") +
+  plot_scalebars(max(df$x)-1200, max(df$y)-300, length = 1000, label = "1mm",
+                 background_height_adjust = 70, tickheight_major = 30, background_expansion = 16,
+                 tickheight_minor = 12, ticks_minor = c(0.2, 0.4, 0.6, 0.8)) 
+  
+p_mini_1 = ggplot(df_edges_pos, aes(x = x.Sending, y = y.Sending,
+                           xend = x.Receiving, yend = y.Receiving)) +
+  geom_node_voronoi(data = df, mapping = aes(fill=bordering),
+                    normalize = F, max.radius = 25, color = NA, alpha = 0.2, show.legend = F) +
+  scale_fill_manual(values = c("Background" = NA, "T/NK neighborhood" = "darkgreen",
+                               "Tumor neighborhood" = "darkred", "Tumor-Immune border" = "#DDDD22"),
+                    name = "Region") +
+  new_scale_fill() +
+  geom_point(data = df, mapping = aes(x,y, alpha = value, color = value),
+             inherit.aes = F, size = 3., show.legend = F) +
+  scale_alpha_continuous(range = c(0., 1.), limits = edgeval_lims, oob = scales::squish) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = edgeval_lims, oob = scales::squish, ) +
+  new_scale_color() +
+  geom_segment(mapping = aes(color = value), linewidth = 0.8) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = c(0., NA), name = "NICHES\nInteraction\nValue\n(Edges)") +
+  new_scale_color() +
+  geom_point(data = df, mapping = aes(x,y,color = celltype_spider),
+             inherit.aes = F, size = 0.8, show.legend = F) +
+  scale_color_manual(values = cellcolors) +
+  mytheme() +
+  coord_equal(xlim = c(inset_xmin, inset_xmax), ylim = c(inset_ymin, inset_ymax), expand = F) +
+  theme(axis.text = element_blank(), axis.title = element_blank(), axis.ticks = element_blank(),
+        legend.position = "inside", legend.position.inside = c(.8, .99), legend.justification.inside = c(1, 1),
+        legend.background = element_rect(fill=alpha("white", 0.8)), legend.key.height = unit(2, "lines"), legend.margin = margin(2,2,4,2, "pt"),
+        plot.margin = margin(0,0,0,0, unit = "pt"), panel.background = element_blank(), legend.text = element_text(size = 12),
+        panel.border = element_rect(fill = NA, color = "black", linewidth = 2), legend.title = element_text(face = "bold", size = 14)) +
+  plot_scalebars(inset_xmax-210, inset_ymin+20)
+
+
+p_mini_2 = ggplot(df_edges_pos, aes(x = x.Sending, y = y.Sending,
+                           xend = x.Receiving, yend = y.Receiving)) +
+  geom_node_voronoi(data = df, mapping = aes(fill=bordering),
+                    normalize = F, max.radius = 25, color = NA, alpha = 0.2, show.legend = F) +
+  scale_fill_manual(values = c("Background" = NA, "T/NK neighborhood" = "darkgreen",
+                               "Tumor neighborhood" = "darkred", "Tumor-Immune border" = "#DDDD22"),
+                    name = "Region") +
+  new_scale_fill() +
+  geom_point(data = df, mapping = aes(x,y, alpha = value, color = value),
+             inherit.aes = F, size = 3., show.legend = F) +
+  scale_alpha_continuous(range = c(0., 1.), limits = edgeval_lims, oob = scales::squish) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = edgeval_lims, oob = scales::squish, ) +
+  new_scale_color() +
+  geom_segment(mapping = aes(color = value), linewidth = 0.8) +
+  scale_color_distiller(direction = 1, palette = "PuBuGn", limits = c(0., NA), name = "NICHES\nInteraction\nValue\n(Edges)") +
+  new_scale_color() +
+  geom_point(data = df, mapping = aes(x,y,color = celltype_spider),
+             inherit.aes = F, size = 0.8, show.legend = F) +
+  scale_color_manual(values = cellcolors) +
+  mytheme() +
+  coord_equal(xlim = c(inset2_xmin, inset2_xmax), ylim = c(inset2_ymin, inset2_ymax), expand = F) +
+  theme(axis.text = element_blank(), axis.title = element_blank(), axis.ticks = element_blank(),
+        legend.position = "inside", legend.position.inside = c(.80, .99), legend.justification.inside = c(1, 1),
+        legend.background = element_rect(fill=alpha("white", 0.8)), legend.key.height = unit(2, "lines"), legend.margin = margin(2,2,4,2, "pt"),
+        plot.margin = margin(0,0,0,0, unit = "pt"), panel.background = element_blank(), legend.text = element_text(size = 12),
+        panel.border = element_rect(fill = NA, color = "#1122AF", linewidth = 2), legend.title = element_text(face = "bold", size = 14)) +
+  plot_scalebars(inset2_xmax-210, inset2_ymin+20)
+
+wrap_plots(a = p_maxi, b = p_mini_1, c = p_mini_2,
+           design = "
+           aab
+           aac
+           ")
+```
+
+## celltype connection plots for other mechanisms
+
+### LGALS3—CD6
+
+```{r celltype-conns-supp-1, fig.width=2*8., fig.asp=0.7, fig.show = 'hold', echo=T, eval=T}
+dat = do.call(rbind, lapply(seq_along(liana_aggs), function(i){
+    agg = liana_aggs[[i]] %>%
+        filter(aggregate_rank<=0.01 & ligand.complex=="LGALS3" & receptor.complex=="CD6")
+    agg$sample=names(liana_aggs)[i]
+    agg
+})) %>%
+  group_by(source, target) %>%
+  distinct() %>%
+  mutate(n = n()) %>%
+  summarize(aggregate_rank = mean(aggregate_rank),
+            n = first(n),
+            samples = paste(sample, collapse=", "),
+            .groups = "drop")
+
+celltypes_connection_plot(dat %>% filter(n>=2),
+                          celltype_colors_table = cellcolors, layout = function(g)convert(g, to_undirected) %>% ggraph::create_layout("backbone") %>% select(x,y))
+```
+
+### ANXA1—CXCR4
+
+```{r celltype-conns-supp-2, fig.width=2*8., fig.asp=0.7, fig.show = 'hold', echo=T, eval=T}
+dat = do.call(rbind, lapply(seq_along(liana_aggs), function(i){
+    agg = liana_aggs[[i]] %>%
+        filter(aggregate_rank<=0.01 & ligand.complex=="ANXA1" & receptor.complex=="CXCR4")
+    agg$sample=names(liana_aggs)[i]
+    agg
+})) %>%
+  group_by(source, target) %>%
+  distinct() %>%
+  mutate(n = n()) %>%
+  summarize(aggregate_rank = mean(aggregate_rank),
+            n = first(n),
+            samples = paste(sample, collapse=", "),
+            .groups = "drop")
+
+set.seed(1234)
+celltypes_connection_plot(dat %>% filter(n>=2),
+                          celltype_colors_table = cellcolors, layout = "nicely")
+
+
+celltypes_connection_plot(dat %>% filter(n>=3),
+                          celltype_colors_table = cellcolors, layout = function(g)convert(g, to_undirected) %>% ggraph::create_layout("backbone") %>% select(x,y))
+```
+
+### CD59—CD2
+
+```{r celltype-conns-supp-3, fig.width=2*8., fig.asp=0.7, fig.show = 'hold', echo=T, eval=T}
+dat = do.call(rbind, lapply(seq_along(liana_aggs), function(i){
+    agg = liana_aggs[[i]] %>%
+        filter(aggregate_rank<=0.01 & ligand.complex=="CD59" & receptor.complex=="CD2")
+    agg$sample=names(liana_aggs)[i]
+    agg
+})) %>%
+  group_by(source, target) %>%
+  distinct() %>%
+  mutate(n = n()) %>%
+  summarize(aggregate_rank = mean(aggregate_rank),
+            n = first(n),
+            samples = paste(sample, collapse=", "),
+            .groups = "drop")
+
+set.seed(12345)
+celltypes_connection_plot(dat %>% filter(n>=2),
+                          celltype_colors_table = cellcolors, layout = "nicely")
+
+
+celltypes_connection_plot(dat %>% filter(n>=3),
+                          celltype_colors_table = cellcolors, layout = function(g)convert(g, to_undirected) %>% ggraph::create_layout("backbone") %>% select(x,y))
+```
+
+### VIM—CD44
+
+```{r celltype-conns-supp-4, fig.width=2*8., fig.asp=1, fig.show = 'hold', echo=T, eval=T}
+dat = do.call(rbind, lapply(seq_along(liana_aggs), function(i){
+    agg = liana_aggs[[i]] %>%
+        filter(aggregate_rank<=0.01 & ligand.complex=="VIM" & receptor.complex=="CD44")
+    agg$sample=names(liana_aggs)[i]
+    agg
+})) %>%
+  group_by(source, target) %>%
+  distinct() %>%
+  mutate(n = n()) %>%
+  summarize(aggregate_rank = mean(aggregate_rank),
+            n = first(n),
+            samples = paste(sample, collapse=", "),
+            .groups = "drop")
+
+celltypes_connection_plot(dat %>% filter(n>=3),
+                          celltype_colors_table = cellcolors, layout = "circle")
+
+
+celltypes_connection_plot(dat %>% filter(n>=4),
+                          celltype_colors_table = cellcolors, layout = function(g)convert(convert(g, to_undirected), to_simple) %>% ggraph::create_layout("backbone") %>% select(x,y))
+```
+
+### MIF—CD74
+
+```{r celltype-conns-supp-5, fig.width=2*8., fig.asp=1, fig.show = 'hold', echo=T, eval=T}
+dat = do.call(rbind, lapply(seq_along(liana_aggs), function(i){
+    agg = liana_aggs[[i]] %>%
+        filter(aggregate_rank<=0.01 & ligand.complex=="MIF" & receptor.complex=="CD74")
+    agg$sample=names(liana_aggs)[i]
+    agg
+})) %>%
+  group_by(source, target) %>%
+  distinct() %>%
+  mutate(n = n()) %>%
+  summarize(aggregate_rank = mean(aggregate_rank),
+            n = first(n),
+            samples = paste(sample, collapse=", "),
+            .groups = "drop")
+
+celltypes_connection_plot(dat %>% filter(n>=3),
+                          celltype_colors_table = cellcolors, layout = "circle")
+set.seed(123456)
+celltypes_connection_plot(dat %>% filter(n>=4),
+                          celltype_colors_table = cellcolors, layout = "nicely")
+```
+
+### ITGB2—ITGAL
+
+```{r celltype-conns-supp-6, fig.width=2*8., fig.asp=1, fig.show = 'hold', echo=T, eval=T}
+dat = do.call(rbind, lapply(seq_along(liana_aggs), function(i){
+    agg = liana_aggs[[i]] %>%
+        filter(aggregate_rank<=0.01 & ligand.complex=="ITGB2" & receptor.complex=="ITGAL")
+    agg$sample=names(liana_aggs)[i]
+    agg
+})) %>%
+  group_by(source, target) %>%
+  distinct() %>%
+  mutate(n = n()) %>%
+  summarize(aggregate_rank = mean(aggregate_rank),
+            n = first(n),
+            samples = paste(sample, collapse=", "),
+            .groups = "drop")
+
+celltypes_connection_plot(dat %>% filter(n>=1),
+                          celltype_colors_table = cellcolors, layout = "circle")
+set.seed(12345)
+celltypes_connection_plot(dat %>% filter(n>=2),
+                          celltype_colors_table = cellcolors, layout = "nicely")
+```
+
+
+```{dummy, eval = F}
+### `r I(names(hd_objs_processed)[1])`
+
+# ```{r hd-niches-1, fig.width=16., fig.asp=0.7, fig.show = 'hold', echo=T, eval=T}
+#   s = 1 # 983-1 removed due to missing consent
+# 
+#   curr_obj = hd_objs_processed[[s]]
+#   df = curr_obj$NICHES_output$CellToNeighborhood@meta.data %>%
+#     mutate(object_id = as.numeric(SendingCell)) %>%
+#     left_join(curr_obj$obs_for_alluvials) %>%
+#     mutate(x = x_tr, y = y_tr, 
+#            filt = celltype_broad %in% c("Mel", "T", "NK"),
+#            celltype_spider = setNames(celltype_spiderplots_collapsing[as.character(SendingType)], nm=NULL))
+#   
+#   df_edges = curr_obj$NICHES_output$CellToCellSpatial@meta.data %>%
+#     mutate(edge_id = colnames(curr_obj$NICHES_output$CellToCellSpatial),
+#            value = curr_obj$NICHES_output$CellToCellSpatial["LGALS1—PTPRC",]@assays$CellToCellSpatial@layers$data)
+#   df_edges[c("sending_id", "receiving_id")] = str_split_fixed(df_edges$edge_id, pattern = "—", n = 2)
+#   df_edges = df_edges %>%
+#     left_join(df %>% transmute(sending_id = SendingCell, x.Sending = x, y.Sending = y)) %>%
+#     left_join(df %>% transmute(receiving_id = SendingCell, x.Receiving = x, y.Receiving = y))
+#  
+#   avg_edge_values = df_edges %>% 
+#     group_by(sending_id) %>%
+#     summarize(n = n(), valuesum = sum(value)) %>%
+#     inner_join(df_edges %>% 
+#     group_by(receiving_id) %>%
+#     summarize(n = n(), valuesum = sum(value)), 
+#     by = join_by(sending_id == receiving_id)) %>%
+#     transmute(id = sending_id,
+#               value = (valuesum.x + valuesum.y)/(n.x + n.y -1))
+# 
+#   df = df %>% left_join(avg_edge_values, join_by(SendingCell == id))
+#   df_edges_pos = df_edges %>% filter(value>0)
+#     
+# inset_xmin = 950
+# inset_xmax = 1400
+# inset_ymin = 400
+# inset_ymax = 850
+# 
+# inset2_xmin = 1850
+# inset2_xmax = 2400
+# inset2_ymin = 770
+# inset2_ymax = 1320
+# 
+# edgeval_lims = c(0., quantile(df$value[df$value>0], p = c(0.995)))
+# edgeval_lims = ceiling(10*edgeval_lims)/10
+# 
+# p_maxi = ggplot(df, aes(x = x, y = y)) +
+#   mytheme() +
+#   theme(axis.text = element_blank(), axis.title = element_blank(),
+#         axis.ticks = element_blank(), legend.box.spacing = unit(8, "pt"), legend.text = element_text(size = 12),
+#         legend.position = "bottom", legend.direction = "horizontal", legend.box.margin = margin(l = 2, unit = "pt"),
+#         legend.title.position = "top", legend.title = element_text(face = "bold", size = 14), legend.justification.bottom = "left") +
+#   geom_node_voronoi(mapping = aes(fill=bordering), normalize = F, max.radius = 50, color = NA, alpha = 0.2) +
+#   scale_fill_manual(values = c("Background" = NA, "T/NK neighborhood" = "darkgreen",
+#                                "Tumor neighborhood" = "darkred", "Tumor-Immune border" = "#DDDD22"),
+#                     name = "Region", guide = guide_legend(nrow = 2, order = 2)) +
+#   geom_point(aes(alpha = value, color = value), size = 3, stroke = 0.) +
+#   continuous_scale("alpha", name = waiver(), palette = rescale_saturating(range = c(0., 0.95), rel_saturating = 0.45),
+#                    limits = edgeval_lims, oob = scales::squish) +
+#   scale_color_distiller(direction = 1, palette = "PuBuGn", limits = edgeval_lims, oob = scales::squish) +
+#   guides(alpha = guide_bins("Cell Average Interaction Value", 
+#                    theme = theme(legend.key.width = rel(1.3),
+#                                  legend.key = element_rect(fill = pattern, color = NA))),
+#          color = guide_bins("Cell Average Interaction Value", show.limits = T, order = 3,
+#                    override.aes = list(size = 6))) +
+#   new_scale_color() +
+#   geom_point(mapping = aes(x,y,color = celltype_spider), size = 0.08) +
+#   scale_color_manual(breaks = names(cellcolors), values = cellcolors, name = "Celltype",
+#                      guide = guide_legend(override.aes = list(size = 4), nrow = 3, order = 1)) +
+#   coord_equal(expand = F, xlim = range(df$x), ylim = range(df$y)) +
+#   annotate("segment", x = c(inset_xmin, inset_xmax), y = c(inset_ymin, inset_ymin), yend = c(inset_ymax, inset_ymax)) + # frame for inset
+#   annotate("segment", y = c(inset_ymin, inset_ymax), x = c(inset_xmin, inset_xmin), xend = c(inset_xmax, inset_xmax)) +
+#   annotate("segment", x = c(inset2_xmin, inset2_xmax), y = c(inset2_ymin, inset2_ymin), 
+#            yend = c(inset2_ymax, inset2_ymax), colour = "#1122AF") + # frame for inset
+#   annotate("segment", y = c(inset2_ymin, inset2_ymax), x = c(inset2_xmin, inset2_xmin), 
+#            xend = c(inset2_xmax, inset2_xmax), colour = "#1122AF") +
+#   plot_scalebars(max(df$x)-600, max(df$y)-150, length = 1000, label = "1mm",
+#                  background_height_adjust = 70, tickheight_major = 30, background_expansion = 16,
+#                  tickheight_minor = 6, ticks_minor = c(0.2, 0.4, 0.6, 0.8)) 
+#   
+# p_mini_1 = ggplot(df_edges_pos, aes(x = x.Sending, y = y.Sending,
+#                            xend = x.Receiving, yend = y.Receiving)) +
+#   geom_node_voronoi(data = df, mapping = aes(fill=bordering),
+#                     normalize = F, max.radius = 25, color = NA, alpha = 0.2, show.legend = F) +
+#   scale_fill_manual(values = c("Background" = NA, "T/NK neighborhood" = "darkgreen",
+#                                "Tumor neighborhood" = "darkred", "Tumor-Immune border" = "#DDDD22"),
+#                     name = "Region") +
+#   new_scale_fill() +
+#   geom_point(data = df, mapping = aes(x,y, alpha = value, color = value),
+#              inherit.aes = F, size = 3., show.legend = F) +
+#   scale_alpha_continuous(range = c(0., 1.), limits = edgeval_lims, oob = scales::squish) +
+#   scale_color_distiller(direction = 1, palette = "PuBuGn", limits = edgeval_lims, oob = scales::squish) +
+#   new_scale_color() +
+#   geom_segment(mapping = aes(color = value), linewidth = 0.8) +
+#   scale_color_distiller(direction = 1, palette = "PuBuGn", limits = c(0., NA), name = "NICHES\nInteraction\nValue\n(Edges)") +
+#   new_scale_color() +
+#   geom_point(data = df, mapping = aes(x,y,color = celltype_spider),
+#              inherit.aes = F, size = 0.8, show.legend = F) +
+#   scale_color_manual(values = cellcolors) +
+#   mytheme() +
+#   coord_equal(xlim = c(inset_xmin, inset_xmax), ylim = c(inset_ymin, inset_ymax), expand = F) +
+#   theme(axis.text = element_blank(), axis.title = element_blank(), axis.ticks = element_blank(),
+#         legend.position = "inside", legend.position.inside = c(.99, .99), legend.justification.inside = c(1, 1),
+#         legend.background = element_rect(fill=alpha("white", 0.8)), legend.key.height = unit(2, "lines"),
+#         plot.margin = margin(0,0,0,0, unit = "pt"), panel.background = element_blank(), legend.text = element_text(size = 12),
+#         panel.border = element_rect(fill = NA, color = "black", linewidth = 2), legend.title = element_text(face = "bold", size = 14)) +
+#   plot_scalebars(inset_xmax-210, inset_ymin+20)
+# 
+# 
+# p_mini_2 = ggplot(df_edges_pos, aes(x = x.Sending, y = y.Sending,
+#                            xend = x.Receiving, yend = y.Receiving)) +
+#   geom_node_voronoi(data = df, mapping = aes(fill=bordering),
+#                     normalize = F, max.radius = 25, color = NA, alpha = 0.2, show.legend = F) +
+#   scale_fill_manual(values = c("Background" = NA, "T/NK neighborhood" = "darkgreen",
+#                                "Tumor neighborhood" = "darkred", "Tumor-Immune border" = "#DDDD22"),
+#                     name = "Region") +
+#   new_scale_fill() +
+#   geom_point(data = df, mapping = aes(x,y, alpha = value, color = value),
+#              inherit.aes = F, size = 3., show.legend = F) +
+#   scale_alpha_continuous(range = c(0., 1.), limits = edgeval_lims, oob = scales::squish) +
+#   scale_color_distiller(direction = 1, palette = "PuBuGn", limits = edgeval_lims, oob = scales::squish, ) +
+#   new_scale_color() +
+#   geom_segment(mapping = aes(color = value), linewidth = 0.8) +
+#   scale_color_distiller(direction = 1, palette = "PuBuGn", limits = c(0., NA), name = "NICHES\nInteraction\nValue\n(Edges)") +
+#   new_scale_color() +
+#   geom_point(data = df, mapping = aes(x,y,color = celltype_spider),
+#              inherit.aes = F, size = 0.8, show.legend = F) +
+#   scale_color_manual(values = cellcolors) +
+#   mytheme() +
+#   coord_equal(xlim = c(inset2_xmin, inset2_xmax), ylim = c(inset2_ymin, inset2_ymax), expand = F) +
+#   theme(axis.text = element_blank(), axis.title = element_blank(), axis.ticks = element_blank(),
+#         legend.position = "inside", legend.position.inside = c(.99, .99), legend.justification.inside = c(1, 1),
+#         legend.background = element_rect(fill=alpha("white", 0.8)), legend.key.height = unit(2, "lines"),
+#         plot.margin = margin(0,0,0,0, unit = "pt"), panel.background = element_blank(), legend.text = element_text(size = 12),
+#         panel.border = element_rect(fill = NA, color = "#1122AF", linewidth = 2), legend.title = element_text(face = "bold", size = 14)) +
+#   plot_scalebars(inset2_xmax-110, inset2_ymin+10, background_expansion = 4, background_height_adjust = 11)
+# 
+# wrap_plots(a = p_maxi, b = p_mini_1, c = p_mini_2,
+#            design = "
+#            aab
+#            aac
+#            ")
+# ```
+```
