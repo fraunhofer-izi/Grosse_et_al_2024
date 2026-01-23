@@ -1,0 +1,563 @@
+---
+title: "Example for LR-I using deconvolution results to select spots for tests"
+output:
+  workflowr::wflow_html:
+    code_folding: hide
+    fig_caption: yes
+    number_sections: yes
+    pandoc_args: []
+    self_contained: yes
+    smart: yes
+    toc: yes
+    toc_depth: 5
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r libs-and-functions, echo = F, message = FALSE, warning=FALSE}
+library("Cairo")
+library("Seurat")
+library("tidyverse")
+library("yaml")
+library("ggplot2")
+library("cowplot")
+library("clustree")
+library("naturalsort")
+library("reshape2")
+library("patchwork")
+library("ggthemes")
+library("kableExtra")
+library("scico")
+library("semla")
+library("scales")
+library("ggrepel")
+library("mixtools")
+library("circlize")
+
+# bioc
+library("NICHES")
+
+library("liana")
+
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# Functions
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+source("code/helper/Rmarkdown-style.R")
+theme_set(mytheme(base_size = 7))
+
+# collection of important functions
+source("code/helper/FG_helper_NICHES.R")
+
+# this function is in the new version of semla anyways, so this is superseeded
+# # modified function from STutility/semla to draw correctly scaled
+# # sizebar anywhere on the slide
+# # Add sizebar with choosable location
+# add_sb_to_plot <- function(p, se, x = 0.85, y = 0.17, 
+#                            sample.index = 1, dark.theme = F){  
+#   pixels.per.um <- GetStaffli(se)@pixels.per.um[sample.index]
+#   dims <- GetStaffli(se)@dims[[sample.index]][2:3] %>% as.numeric()
+#   hewidth <- dims[1]
+#   sb500 <- pixels.per.um * 500
+#   x_start <- x*hewidth
+#   x_end <- x*hewidth + sb500
+#   y_start <- (1-y)*dims[2]
+#   dx <- hewidth - x_end
+#   if (dx < 0) {
+#     x_start <- x_start + dx * 2
+#     x_end <- x_end + dx * 2
+#   }
+#   p <- semla:::draw_scalebar(p, x = x_start, xend = x_end, y = y_start, 
+#                      dark.theme = dark.theme)
+#   return(p)
+# }
+
+circle.vis.LRI <- function(x){
+  require(circlize)
+  circ.df = tidyr::separate(data.frame(mechanism = x), mechanism, sep = "—", 
+                            into = c("from", "to"), remove = T)
+  circ.df$value = 1
+  #circ.df = dplyr::arrange(circ.df, from)
+  #group ligands, receptors and "either"
+  all.genes = unique(c(circ.df$from, circ.df$to))
+  grp = setNames(nm = all.genes, object = 
+                   factor(ifelse(all.genes %in% circ.df$from,
+                          ifelse(all.genes %in% circ.df$to,
+                                 "either",
+                                 "source"),
+                          "target"), levels = c("source", "either", "target")))
+  # for better readability, the order of genes is important:
+  # to reduce crossings, start (going clockwise) by ligands
+  # whose targets are only receptors, then ligands with
+  # "either" receptors, then the "either receptor or ligand"s
+  # then receptors for "either" ligands and then receptors that
+  # only connect to pure ligands (reversed)
+  # 
+  g.either = all.genes[(all.genes %in% circ.df$from) & (all.genes %in% circ.df$to)]
+  g.ligs = setdiff(all.genes[all.genes %in% circ.df$from], g.either)
+  g.ligs.mixed = unique(dplyr::filter(circ.df, from %in% g.ligs, to %in% g.either)$from)
+  g.ligs.pure = setdiff(g.ligs, g.ligs.mixed)
+  g.recs = setdiff(all.genes[all.genes %in% circ.df$to], g.either)
+  g.recs.mixed = unique(dplyr::filter(circ.df, to %in% g.recs, from %in% g.either)$to)
+  g.recs.pure = setdiff(g.recs, g.recs.mixed)
+  
+  g.pure.pure = dplyr::filter(circ.df, from %in% g.ligs.pure, to %in% g.recs.pure)
+  g.pure.mixed = dplyr::filter(circ.df, from %in% g.ligs.pure, to %in% g.recs.mixed)
+  g.mixed.pure = dplyr::filter(circ.df, from %in% g.ligs.mixed, to %in% g.recs.pure)
+  
+  g.ligs.pure = rev(unique(c(rev(g.pure.mixed$from), (g.pure.pure$from))))
+  g.recs.pure = unique(c(rev(g.mixed.pure$to), (g.pure.pure$to)))
+  
+  g.order = c(g.ligs.pure, g.ligs.mixed, g.either, g.recs.mixed, g.recs.pure)
+  
+  grp = grp[g.order]
+  
+  chordDiagram(circ.df, directional = 1, group = droplevels(grp), 
+               direction.type = c("arrows"), link.arr.type = "big.arrow", 
+               annotationTrack = "grid", preAllocateTracks = 
+                 list(track.height = max(strwidth(c(circ.df$from, circ.df$to)))), 
+               h.ratio = 0.7)
+  circos.track(track.index = 1, panel.fun = function(x, y) {
+    circos.text(CELL_META$xcenter, CELL_META$ylim[1], CELL_META$sector.index, 
+        facing = "clockwise", niceFacing = TRUE, adj = c(0, 0.1))
+}, bg.border = NA) 
+circos.clear()
+}
+
+simple.LR.plot <- function(se, gene){
+  feature_overlay(se, features = gene, pt.size = 1.4) &
+    theme(
+      legend.position = "bottom",
+      axis.title = element_blank(),
+      axis.text = element_blank(),
+      axis.ticks = element_blank(),
+      legend.title = element_text(margin = margin(r = 6, unit = "pt"))
+    ) &
+    guides(fill = guide_colorbar(title.position = "left", title.hjust = 0, title.vjust = 1.,
+                                 barheight = unit(.4, "lines"), title = "LogCounts",
+                                 barwidth = unit(6, "lines"))) 
+}
+
+complex.LR.plot <- function(se, genes){
+  if (length(genes)>3) {stop("Case of more than 3 genes in a complex currently unhandled.")}
+  p = feature_overlay(se, features = c(genes), pt.size = 1.4, blend = T) &
+    theme(
+      legend.position = "bottom"
+    ) 
+  p[[1]][[1]] = p[[1]][[1]] + ggtitle("Receptor complex (blended):",
+                            subtitle = paste(c(genes), collapse = ", "))
+  p
+}
+
+vis.LR.interaction <- function(se, mechanism,
+                               interaction.assay,
+                               gene.assay = "RNA_logcounts"){
+  split.sides = str_split(mechanism, pattern = "—", simplify = T)
+  # with fixed handling of complexes, we split on "+" now
+  ligand.parts = str_split(split.sides[1], pattern = "[+]", simplify = T)
+  receptor.parts = str_split(split.sides[2], pattern = "[+]", simplify = T)
+
+  DefaultAssay(se) = gene.assay
+  if (length(ligand.parts) == 1) { # if ligand is simple
+    p.lig = simple.LR.plot(se, ligand.parts[1]) 
+    p.lig[[1]][[1]] = p.lig[[1]][[1]] + ggtitle("Ligand:", subtitle = ligand.parts[1])
+  } else {
+    p.lig = complex.LR.plot(se, ligand.parts)
+  }
+  if (length(receptor.parts) == 1) { # if receptor is simple
+    p.rec = simple.LR.plot(se, receptor.parts[1]) 
+    p.rec[[1]][[1]] = p.rec[[1]][[1]] + ggtitle("Receptor:", subtitle = receptor.parts[1])
+  } else {
+    p.rec = complex.LR.plot(se, receptor.parts)
+  }
+  DefaultAssay(se) = interaction.assay
+  p.interaction = feature_overlay(se, features = mechanism, pt.size = 1.4) &
+    theme(
+      legend.position = "bottom",
+      axis.title = element_blank(),
+      axis.text = element_blank(),
+      axis.ticks = element_blank(),
+      legend.title = element_text(margin = margin(r = 6, unit = "pt"))
+    ) &
+    guides(fill = guide_colorbar(title.position = "left", title.hjust = 0, title.vjust = 1., 
+                                 barheight = unit(.4, "lines"), title = "LRI-Score",
+                                 barwidth = unit(6, "lines"))) 
+    
+  p.interaction[[1]][[1]] = p.interaction[[1]][[1]] + ggtitle("NICHES Interaction Score", subtitle = mechanism)
+
+  plot_grid(p.lig, p.rec, p.interaction, ncol = 3, axis = "tblr", align = "hv")
+}
+
+
+```
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE, cache=F}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  error = FALSE,
+  message = FALSE,
+  cache = FALSE,
+  warning = FALSE,
+  results = TRUE,
+  fig.align = 'center',
+  fig.show = 'hold',
+  autodep = TRUE,
+  dpi = 96,
+  dev = c('CairoPNG') # alternative: dev = c('png') type = 'cairo'
+)
+```
+
+```{r manifest-and-objects, echo=F}
+manifest = yaml.load_file("./assets/manifest.yaml")
+current_sample = scan(file.path(manifest$workdata_parent, ".tmp/active_sample"), what = "character", quiet = T)
+sample_manifest = manifest[[current_sample]]
+
+default_plot_focus = sample_manifest$crop_area
+source("code/helper/FG_plotting_functions.R")
+base_pt_size = estim_point_size(sample_manifest)
+
+work.dir = file.path(manifest$workdata_parent, sample_manifest$workdata)
+obj = readRDS(file.path(work.dir, "09_seurat.rds"))
+se = obj$se
+
+cl.res = paste0("SCT_snn_res.", sample_manifest$seurat_clustering_resolution)
+se$seurat_clusters = se[[cl.res]]
+Idents(se) = "seurat_clusters"
+
+```
+
+
+```{r sample-title, results='asis', echo = FALSE}
+sample_full_name = sample_manifest$full_name
+cat("Sample: ", sample_full_name, "\n")
+```
+
+Author: Florian Große (Last updated: `r Sys.Date()`)
+
+# Selected Spots for Ligand-Receptor Interaction Analysis
+
+In this variant, we select tumor and immune positive spots based on the
+CARD deconvolution results and estimates of the number of cells per spot.
+
+- Immune spots are defined as positive for either T cells or NK cells. 
+
+- Tumor spots are defined as positive for malignant cells.
+
+
+```{r chosen-scores-thresholding-combined-tumor, fig.width=8.5, fig.asp=1.2, fig.show = 'hold', echo=T, eval=T}
+malmodel = Misc(se, "mal.model")
+# this R graphics function will be included via as_grob
+p1 <- function(model){
+  vals = model$x
+  t <- seq(min(vals)-0.2, max(vals)+0.2, len=300)
+  hist(vals, breaks = 80, prob = T, 
+       ylim = c(0, max(0.5*model$lambda/model$sigma)),
+       main = "Melanocytic-Cells-Score Mixture Model",
+       xlab = "Module Score Value")
+  malmask = model$mu == max(model$mu)
+  # dotted thin lined for all background components
+  for (i in seq_along(malmask)[!malmask]) {
+    lines(t, dnormmixt(t, model$lambda[i], model$mu[i], model$sigma[i]), 
+        col = "green", lwd = 1, lty = 4)
+  }
+  # thick lines for mixture of background components and tumor component
+  lines(t, dnormmixt(t, model$lambda[!malmask], model$mu[!malmask], model$sigma[!malmask]), 
+        col = "green", lwd = 2)
+  lines(t, dnormmixt(t, model$lambda[malmask], model$mu[malmask], model$sigma[malmask]), 
+        col = "red", lwd = 2)
+  # the first positive value at which the posterior probability of the tumor gaussian
+  # exceeds the combined posterior probability of the background mixture
+  cutoff = t[which.max((t>0) & (dnormmixt(t, model$lambda[malmask], model$mu[malmask], model$sigma[malmask]) >=
+  dnormmixt(t, model$lambda[!malmask], model$mu[!malmask], model$sigma[!malmask])))]
+  abline(v = cutoff)
+}
+
+p2 = feature_overlay_discrete(se, pt.size = 1.7,
+                              features = "TUMOR.positive", 
+                              titles = "Tumor positive spots", colors = c("False" = NULL, "True" = "red"),, 
+                              pt_alpha = ifelse(se[["TUMOR.positive"]]=="True", 1., 0.),
+                              add_scalebar = F) &
+          theme(legend.title = element_blank(), legend.position = "none")
+
+p3 = feature_overlay_discrete(se, pt.size = 1.7,
+                              features = "IMMUNE.positive", 
+                              titles = "T/NK positive Immune Spots", 
+                              colors = c("False" = NULL, "True" = "green"),, 
+                              pt_alpha = ifelse(se[["IMMUNE.positive"]]=="True", 1., 0.),
+                              add_scalebar = F) &
+          theme(legend.title = element_blank(), legend.position = "none")
+
+p4 = feature_overlay_discrete(se, pt.size = 1.7,
+                              features = "active.region.annotated", 
+                              titles = "Resulting Spot Choice for LR-Analysis", 
+                              colors = c("Double-negative spots" = "black",
+                                  "Interfacing tumor-positive spots" = "red",
+                                  "Interfacing immune-positive spots" = "green",
+                                  "Non-interfacing tumor-positive spots" = "darkred",
+                                  "Non-interfacing immune-positive spots" = "darkgreen",
+                                  "Interfacing double-positive spots" = "yellow"), 
+                              pt_alpha = ifelse(se[["active.region"]]=="Background", 0., 1.),
+                              add_scalebar = F) &
+      theme(legend.title = element_blank(), legend.position = "bottom") & 
+      guides(fill=guide_legend(nrow=3, byrow=TRUE))
+
+wrap_elements(full = ~p1(malmodel$mixture.model)) + p2 + p3 + p4 + plot_layout(ncol = 2)
+```
+
+```{r DE-prep, echo=T, eval=T}
+
+######
+# We need to check if we found a border region at all. 
+# This is done in the prep script and saved in Misc(se)
+
+has.proper.border = Misc(se, "has_sufficient_tumor_immune_border")
+NICHES_result = obj$NICHES_result
+
+
+# needed because knitr would throw if these were not defined anywhere
+vis.necessary.rows = 0
+plot.columns = 1
+id.spots1 = 0
+```
+
+```{r show-no-border-error, echo=T, eval=!(has.proper.border)}
+print("As seen above, no border region between tumor and immune cells could be identified (fewer than 5 border spots) or there are fewer than 5 tumor or immune spots in total. Our testing strategy won't work properly with this setup, we there aren't any results here, sadly!")
+```
+
+
+# Gene-level DE Analysis
+
+We can determine individual genes that seem to be overexpressed at the interface of the tumor-immune border region first.
+
+We will do two comparisons: 
+* active region (between tumor and immune spots) vs. all other tumor and immune spots
+* tumor border region vs rest of tumor spots
+
+## Active vs. Background
+
+Standard Wilcoxon differential expression test for the immune-tumor interface region vs all non-interfacing immune and tumor spots. Adjusted p-value cutoff is 0.05.
+
+Displaying 30 max and plotting 10 max.
+
+```{r gene-de-all-vs-bg, fig.width=8.5, echo=T, eval=has.proper.border}
+max.p.adj = 0.05
+plot.columns = 2
+plotmax = 10
+
+Idents(se) = "active.region"
+active.region.vs.background.markers = FindMarkers(se, ident.1 = "Interfacing spots", 
+                                                  ident.2 = "Non-interfacing tumor/immune spots",
+                                                  assay = "Spatial", slot = "data", test.use = "wilcox",
+                                                  only.pos = T)
+
+active.region.vs.background.markers.filt = active.region.vs.background.markers %>%
+                                              filter(p_val_adj < max.p.adj) %>%
+                                              slice_head(n = 30)
+
+vis.necessary.rows = min(ceiling(plotmax / plot.columns), 
+                         ceiling(nrow(active.region.vs.background.markers.filt) / plot.columns))
+
+if (vis.necessary.rows>0) {
+  active.region.vs.background.markers.filt %>% 
+  kbl(booktabs = T) %>% 
+  kable_styling(fixed_thead = T, font_size = 11) %>% 
+  column_spec(1, width_min = "10em")
+} else {
+  cat("No significantly DE genes found! (#DE genes without adjustment: ",
+      nrow(active.region.vs.background.markers %>% filter(p_val < max.p.adj)),
+      ", #DE genes after adjustment: 0")
+}
+
+```
+
+```{r gene-de-all-vs-bg-vis, fig.width=8.5, fig.asp=vis.necessary.rows/plot.columns, fig.show = 'hold', echo=T, eval=has.proper.border&(vis.necessary.rows>0)}
+DefaultAssay(se) = "RNA_logcounts"
+pl = lapply(rownames(active.region.vs.background.markers.filt %>% slice_head(n = 10)), 
+            function(gene){
+  feature_overlay(se = se, features = gene, titles = gene, pt.size = 1.5)
+})
+
+plot_grid(plotlist = pl, ncol = plot.columns, axis = "tblr", align = "hv")
+```
+
+## Tumor Border vs. Interior
+
+We can also compare only tumor-positive spots that are either close to immune spots or not.
+
+Displaying 30 max and plotting 10 max.
+
+```{r gene-de-tumor-vs-tumor-pre, echo=T, eval=has.proper.border}
+max.p.adj = 0.05
+plot.columns = 2
+plotmax = 10
+
+Idents(se) = "active.region.annotated"
+# remove idents that don't appear in the sample
+id1 = intersect(c("Interfacing tumor-positive spots", "Interfacing double-positive spots"), 
+                levels(Idents(se))) 
+id.spots1 = sum(Idents(se) %in% id1)
+
+# below: skip if intersection empty
+if (id.spots1<3) {print("None or too few active tumor spots found!")}
+vis.necessary.rows=0 #init
+```
+
+```{r gene-de-tumor-vs-tumor, echo=T, eval= has.proper.border && (id.spots1>=3)}
+tumor.vs.tumor.markers = FindMarkers(se, ident.1 = id1, only.pos = T,
+                                     ident.2 = "Non-interfacing tumor-positive spots",
+                                     assay = "Spatial", test.use = "wilcox")
+tumor.vs.tumor.markers.filt = tumor.vs.tumor.markers %>%
+                                filter(p_val_adj < max.p.adj) %>%
+                                filter(avg_log2FC > 0) %>% # only pos
+                                slice_head(n = 30)
+
+vis.necessary.rows = min(ceiling(plotmax / plot.columns), 
+                         ceiling(nrow(tumor.vs.tumor.markers.filt) / plot.columns))
+
+if (vis.necessary.rows==0) {print("No significantly enriched genes found!")}
+```
+
+```{r gene-de-tumor-vs-tumor-table, echo=T, eval= has.proper.border && (vis.necessary.rows>0)}
+tumor.vs.tumor.markers.filt %>% 
+  kbl(booktabs = T) %>% 
+  kable_styling(fixed_thead = T, font_size = 11) %>% 
+  column_spec(1, width_min = "10em")
+```
+
+```{r gene-de-tumor-vs-tumor-vis, fig.width=8.5, fig.asp=vis.necessary.rows/plot.columns, fig.show = 'hold', echo=T, eval= has.proper.border && (vis.necessary.rows>0)}
+DefaultAssay(se) = "RNA_logcounts"
+pl = lapply(rownames(tumor.vs.tumor.markers.filt %>% slice_head(n = plotmax)), 
+            function(gene){
+  feature_overlay(se = se, features = gene, titles = gene, pt.size = 1.5)
+})
+
+plot_grid(plotlist = pl, ncol = plot.columns, axis = "tblr", align = "hv")
+```
+
+
+# NICHES Scores and LR DE
+
+```{r NICHES-prep, echo=F, eval=has.proper.border}
+# set True if we want circos plots for every sample
+plot_circos = F
+
+enrichment_obj = readRDS(file.path(work.dir, "09_NICHES_LRDE_res.rds"))
+
+logcounts_border.markers.ntc = enrichment_obj$logcounts$border.markers.NeighborhoodToCell
+logcounts_border.markers.ctn = enrichment_obj$logcounts$border.markers.CellToNeighborhood
+
+normalized_border.markers.ntc = enrichment_obj$normalized$border.markers.NeighborhoodToCell
+normalized_border.markers.ctn = enrichment_obj$normalized$border.markers.CellToNeighborhood
+
+logcounts_se = add_NICHES_to_se(se, NICHES_result$logcounts)
+normalized_se = add_NICHES_to_se(se, NICHES_result$normalized)
+
+show.table.top = 50
+plot.top = 5
+```
+
+We have two ways to combine ligand and receptor expression in NICHES, which are called NeighborhoodToCell and CellToNeighborhood and basically aggregate either ligand expression of a spot with receptor expression of its surroundings (CTN) or vice versa (NTC).
+
+## NeighborhoodToCell Assay
+
+### Logcounts
+
+```{r NICHES-table-NeighbToCell_log, fig.show = 'hold', echo=T, eval=has.proper.border}
+logcounts_border.markers.ntc = logcounts_border.markers.ntc %>%
+  filter(tested & (zscore > 0.) & (pval < 0.05))
+logcounts_border.markers.ntc %>% 
+  slice_head(n = show.table.top) %>%
+  select(-c(gene, cells1, cells2, group1, group2, tested)) %>%
+  kbl(booktabs = T) %>% 
+  kable_styling(fixed_thead = T, font_size = 11) %>% 
+  column_spec(1, width_min = "10em")
+```
+
+```{r vis-LR-mechanisms-NeighbToCell_log, fig.width=10., fig.asp=0.45, fig.show = 'hold', echo=T, eval=has.proper.border}
+plot.mechanisms = logcounts_border.markers.ntc %>% 
+  slice_head(n = plot.top) %>% 
+  pull(gene)
+
+for (m in plot.mechanisms) {
+  plot(vis.LR.interaction(logcounts_se, m, interaction.assay = "NeighborhoodToCell"))
+}
+```
+
+### Normalized
+
+```{r NICHES-table-NeighbToCell_norm, fig.show = 'hold', echo=T, eval=has.proper.border}
+normalized_border.markers.ntc = normalized_border.markers.ntc %>%
+  filter(tested & (zscore > 0.) & (pval < 0.05))
+normalized_border.markers.ntc %>% 
+  slice_head(n = show.table.top) %>%
+  select(-c(gene, cells1, cells2, group1, group2, tested)) %>%
+  kbl(booktabs = T) %>% 
+  kable_styling(fixed_thead = T, font_size = 11) %>% 
+  column_spec(1, width_min = "10em")
+```
+
+```{r vis-LR-mechanisms-NeighbToCell_norm, fig.width=10., fig.asp=0.45, fig.show = 'hold', echo=T, eval=has.proper.border}
+plot.mechanisms = normalized_border.markers.ntc %>% 
+  slice_head(n = plot.top) %>% 
+  pull(gene)
+
+for (m in plot.mechanisms) {
+  plot(vis.LR.interaction(normalized_se, m, interaction.assay = "NeighborhoodToCell"))
+}
+```
+
+## CellToNeighborhood Assay
+
+### Logcounts
+
+```{r NICHES-table-CellToNeighb_log, fig.show = 'hold', echo=T, eval=has.proper.border}
+logcounts_border.markers.ctn = logcounts_border.markers.ctn %>%
+  filter(tested & (zscore > 0.) & (pval < 0.05))
+logcounts_border.markers.ctn %>% 
+    slice_head(n = show.table.top) %>%
+    select(-c(gene, cells1, cells2, group1, group2, tested)) %>%
+    kbl(booktabs = T) %>% 
+    kable_styling(fixed_thead = T, font_size = 11) %>% 
+    column_spec(1, width_min = "10em")
+```
+
+```{r vis-LR-mechanisms-CellToNeighb_log, fig.width=10., fig.asp=0.45, fig.show = 'hold', echo=T, eval=has.proper.border}
+plot.mechanisms = logcounts_border.markers.ctn %>% 
+  slice_head(n = plot.top) %>% 
+  pull(gene)
+
+for (m in plot.mechanisms) {
+  plot(vis.LR.interaction(logcounts_se, m, interaction.assay = "CellToNeighborhood"))
+}
+```
+
+### Normalized
+
+```{r NICHES-table-CellToNeighb_norm, fig.show = 'hold', echo=T, eval=has.proper.border}
+normalized_border.markers.ctn = normalized_border.markers.ctn %>%
+  filter(tested & (zscore > 0.) & (pval < 0.05))
+normalized_border.markers.ctn %>% 
+    slice_head(n = show.table.top) %>%
+    select(-c(gene, cells1, cells2, group1, group2, tested)) %>%
+    kbl(booktabs = T) %>% 
+    kable_styling(fixed_thead = T, font_size = 11) %>% 
+    column_spec(1, width_min = "10em")
+```
+
+```{r vis-LR-mechanisms-CellToNeighb_norm, fig.width=10., fig.asp=0.45, fig.show = 'hold', echo=T, eval=has.proper.border}
+plot.mechanisms = normalized_border.markers.ctn %>% 
+  slice_head(n = plot.top) %>% 
+  pull(gene)
+
+for (m in plot.mechanisms) {
+  plot(vis.LR.interaction(normalized_se, m, interaction.assay = "CellToNeighborhood"))
+}
+```
+
+```{r vis-circ-mechanisms-CellToNeighb_norm, fig.width=10.0, fig.asp=1., echo=T, eval=F}
+#circle.vis.LRI(plot.mechanisms)
+```
+
+
