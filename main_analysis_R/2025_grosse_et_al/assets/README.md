@@ -2,7 +2,8 @@
 
 ```         
 assets/
-├── manifest.yaml                       <------ Analysis-wide settings and paths
+├── manifest.yaml                       <------ Analysis-wide settings and paths (template, insert your own paths!)
+├── manifest_full.yaml                  <------ Same as the above, with samples that were not included in the publication present
 ├── README.md                           <------ This file
 ├── cellCycleMarkers.R                  <------ Cycle markers for basic QC and ...
 ├── houseKeepingMarkers.R               <------ Housekeeping markers for basic QC from Tirosh et al. (2016), doi:10.1126/science.aad0501
