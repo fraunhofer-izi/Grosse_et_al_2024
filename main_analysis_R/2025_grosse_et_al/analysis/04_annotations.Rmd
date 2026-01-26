@@ -1,0 +1,476 @@
+---
+title: "Expert Annotations and Clustering"
+output:
+  workflowr::wflow_html:
+    code_folding: hide
+    fig_caption: yes
+    number_sections: yes
+    pandoc_args: []
+    self_contained: yes
+    smart: yes
+    toc: yes
+    toc_depth: 5
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r libs-and-functions, echo = F, message = FALSE, warning=FALSE}
+library("Cairo")
+library("tidyverse")
+library("Seurat")
+library("yaml")
+library("ggplot2")
+library("cowplot")
+library("mclustcomp")
+library("clustree")
+library("naturalsort")
+library("reshape2")
+library("patchwork")
+library("kableExtra")
+library("scico")
+library("semla")
+
+
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# Functions
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+source("code/helper/Rmarkdown-style.R")
+theme_set(mytheme(base_size = 7))
+
+```
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE, cache=F}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  error = FALSE,
+  message = FALSE,
+  cache = FALSE,
+  warning = FALSE,
+  results = TRUE,
+  fig.align = 'center',
+  fig.show = 'hold',
+  autodep = TRUE,
+  dpi = 96,
+  dev = c('CairoPNG') # alternative: dev = c('png') type = 'cairo'
+)
+```
+
+```{r manifest-and-objects, echo=F}
+manifest = yaml.load_file("./assets/manifest.yaml")
+current_sample = scan(file.path(manifest$workdata_parent, ".tmp/active_sample"), what = "character", quiet = T)
+sample_manifest = manifest[[current_sample]]
+
+default_plot_focus = sample_manifest$crop_area
+source("code/helper/FG_plotting_functions.R")
+base_pt_size = estim_point_size(sample_manifest)
+
+work.dir = file.path(manifest$workdata_parent, sample_manifest$workdata)
+# previously, we reported various experiments with different preprocessing steps and 
+# clustering parameters here, but ultimately we decided to stick to the established workflow
+#se = readRDS(file.path(work.dir, "04_extended_clustering.rds"))
+se = readRDS(file.path(work.dir, "04_seurat.rds"))
+
+is_annotated = Misc(se)$is_annotated
+
+if (is_annotated) {
+  annotations_folder = sample_manifest$annotations
+  annotation_picture = file.path(annotations_folder, "annotations.png")
+  has_picture = file.exists(annotation_picture)
+}
+```
+
+```{r sample-title, results='asis', echo = FALSE}
+sample_full_name = sample_manifest$full_name
+cat("Sample: ", sample_full_name, "\n")
+```
+
+Author: Florian Große (Last updated: `r Sys.Date()`)
+
+# Transfer of pathologists manual annotations to spots
+
+```{r transfer-text, echo=F, results='asis'}
+if (is_annotated) {
+  msg = "Loupe browser was used to manually assign categories to spots based on the annotations provided by an expert."
+} else {
+  msg = "<div class=\"alert alert-info\">
+  Annotations have not been transferred to for this sample (yet?). No comparison to the histological annotations is done.
+</div>"
+}
+cat(msg)
+```
+
+
+```{r annotation-transfer, echo=T, fig.show='hold', eval = is_annotated && has_picture}
+## This part and the following parts are only rendered when slide is annotated.
+## Code for non-annotated slides is below that
+
+spotcolors = list()
+annotation_classes = unique(se$Kunz)
+# all
+if ("epidermis" %in% annotation_classes) {spotcolors["epidermis"] = "#05b153"}
+if ("inflammatory regions" %in% annotation_classes) {spotcolors["inflammatory regions"] = "#41719c"}
+if ("dermis with fibroblasts" %in% annotation_classes) {spotcolors["dermis with fibroblasts"] = "#fdfd08"}
+# sample specific
+# may share a color if not seen together
+# melanoma samples
+if ("melanoma" %in% annotation_classes) {spotcolors["melanoma"] = "#f5181d"}
+# naevi
+if ("melanocytes" %in% annotation_classes) {spotcolors["melanocytes"] = "#f5181d"}
+# all things marked brown, don't show up together in our samples
+if ("follicle" %in% annotation_classes) {spotcolors["follicle"] = "#ed7d31"}
+if ("blood vessel" %in% annotation_classes) {spotcolors["blood vessel"] = "#ed7d31"}
+if ("sebaceous gland" %in% annotation_classes) {spotcolors["sebaceous gland"] = "#ed7d31"}
+if ("perspiratory gland" %in% annotation_classes) {spotcolors["perspiratory gland"] = "#ed7d31"}
+# other
+if ("vasculature" %in% annotation_classes) {spotcolors["vasculature"] = "#a4f53b"}
+if ("muscle" %in% annotation_classes) {spotcolors["muscle"] = "#a726de"}
+
+# fallback
+if (length(spotcolors) != length(annotation_classes)) {
+  # report that something does not match up
+  # the logic below was specific for the melanoma samples annotated in the lab of Dr. Kunz
+  # so if this is reused for other samples, you need to match annotation class names and 
+  # the colors you want them to have in the plot anew
+  print("The coded annotation-to-color-matching could not sufficiently determine preferred colors
+        for all classes present in this sample. Unmatched classes may not match the color scheme
+        used by the pathologist. To resolve this issue, please augment the color-matching code
+        in the source .Rmd file as necessary.")
+  if (length(spotcolors) < length(annotation_classes)) {
+    ndif = length(annotation_classes) - length(spotcolors) 
+    unused_colors = setdiff(c("#05b153", "#f5181d", "#fdfd08", "#41719c", "#ed7d31", "#a4f53b", "#a726de"), spotcolors)
+    if (length(unused_colors)<ndif) {
+      ndif = ndif - length(unused_colors)
+      new_colors = c(unused_colors, hcl.colors(ndif, palette = "Dynamic"))
+    } else {
+      new_colors = unused_colors[seq(ndif)]
+    }
+    annos.missing = setdiff(annotation_classes, names(spotcolors))
+    for (i in seq_along(annos.missing)) {
+      spotcolors[annos.missing[i]] = new_colors[i]
+    }
+  }
+}
+  
+
+
+spotplot = feature_overlay_discrete(se, features = "Kunz", pt.size = base_pt_size) &
+            theme(legend.position = "bottom", title = element_blank()) & 
+            scale_fill_manual(values = spotcolors)
+plot_grid(
+  plot_grid( 
+    ggdraw() + draw_image(image = annotation_picture),
+    spotplot & theme(legend.position = "none"),
+   nrow = 1, axis = "tblr", align = "hv", rel_widths = c(0.5, 0.5)
+  ),
+  get_legend(spotplot),
+  ncol = 1, rel_heights = c(1, 0.2)
+)
+```
+
+```{r clusterings-section-header, results='asis', echo=FALSE, eval=T}
+if (is_annotated) {
+msg = "
+# Matching Louvaine Clustering and Manual Annotations
+
+Louvaine clusterings generated at different clustering resolutions can now be compared with the histological annotations. The right side of the page shows correspondence heatmaps depicting the relative frequency of histological annotation classes for each computationally generated cluster.
+"
+} else {
+  msg = "
+# Automatic Louvain Clustering Results
+
+Louvaine clusterings are generated at different clustering resolutions
+"
+}
+cat(msg)
+```
+
+## Evaluation of Different Clustering Resolutions
+
+```{r annotated-clusterings-sct, fig.width=10.0, fig.show = 'asis', echo=T, eval=is_annotated}
+
+resolutions <- manifest$clustree_resolutions
+
+doplot <- function(res){
+  clustering_name <- paste0("SCT_snn_res.", res)
+  annos <- se[[c(clustering_name, "Kunz")]]
+  annos <- data.frame(xtabs(annos, formula = as.formula(paste0("~ Kunz + ", clustering_name)))) %>%
+            group_by(across(all_of( {{clustering_name}} ))) %>%
+            mutate(relative.freq = Freq / sum(Freq), Freq = NULL)
+  list(
+    ggplot(annos, aes(Kunz, .data[[clustering_name]], fill = relative.freq)) +
+      geom_tile() +
+      theme_minimal() + theme(axis.title = element_blank()) +
+      guides(x =  guide_axis(angle = 90)) +
+      coord_equal() +
+      scale_fill_gradient(low = "white", high = "darkred", name = "Relative\nFrequency",
+                          limits = c(0., 1.), breaks = c(0., 1.), 
+                          labels = c("0%", "100%")),
+    DimPlot(se, reduction = "umap", group.by = clustering_name) & 
+      theme(legend.position = "none", plot.title = element_blank(), plot.subtitle = element_blank()) &
+      coord_equal(),
+    feature_overlay_discrete(se, features = clustering_name, pt.size = base_pt_size/1.1) &
+      theme(legend.title = element_blank(), title = element_blank(),
+            axis.title = element_blank(), axis.text = element_blank(),
+            legend.position = "bottom")
+  )
+}
+
+allplots = unlist(lapply(resolutions, doplot), recursive = F)
+plotlabels = unlist(lapply(resolutions, function(res) list(paste("Resolution", res), " ", " ")))
+
+for (index in seq_along(resolutions)*3-2) {
+  print(plot_grid(allplots[[index]], allplots[[index+1]], allplots[[index+2]], rel_widths = c(0.6, 1., 1.),
+                  labels = c(plotlabels[index], plotlabels[index+1], plotlabels[index+2]), label_x = 0.5, ncol = 3))
+  # here comes the statistics, plot with cat since we show the output 'asis'
+  statistics = mclustcomp(as.numeric(as.factor(se$Kunz)), 
+                          as.numeric(as.factor(se[[paste0("SCT_snn_res.", resolutions[(index+2)/3])]][,1])))
+  cat("Higher is better:\n")
+  cat("Rand Index:", subset(statistics, types == "rand")$scores, "\n")
+  cat("Adjusted Rand Index:", subset(statistics, types == "adjrand")$scores, "\n")
+  cat("Mutual Information:", subset(statistics, types == "mi")$scores, "\n")
+  cat("Normalized Mutual Information (Strehl and Ghosh):", subset(statistics, types == "nmi1")$scores, "\n")
+  cat("Normalized Mutual Information (Fred and Jain):", subset(statistics, types == "nmi2")$scores, "\n")
+    cat("Overlap Coefficient:", subset(statistics, types == "overlap")$scores, "\n")
+  cat("Lower is better:\n")
+  cat("Variation of Information:", subset(statistics, types == "vi")$scores, "\n")
+  cat("Normalized Variation of Information:", subset(statistics, types == "nvi")$scores, "\n")
+}
+
+```
+
+```{r missing-annos-clusterings-sct, fig.show = 'asis', echo=T, eval=!(is_annotated)}
+
+resolutions <- manifest$clustree_resolutions
+
+doplot <- function(res){
+  clustering_name <- paste0("SCT_snn_res.", res)
+  list(
+    DimPlot(se, reduction = "umap", group.by = clustering_name) & 
+      theme(legend.position = "none", plot.title = element_blank(), 
+            plot.subtitle = element_blank(), axis.title = element_blank()),
+    feature_overlay_discrete(se, features = clustering_name, pt.size = base_pt_size/1.1) &
+      theme(legend.title = element_blank(), title = element_blank(),
+            axis.title = element_blank(), axis.text = element_blank(),
+            legend.position = "bottom", plot.title = element_blank(), 
+            plot.subtitle = element_blank())
+  )
+}
+
+allplots = unlist(lapply(resolutions, doplot), recursive = F)
+plotlabels = unlist(lapply(resolutions, function(res) list(paste("Resolution", res), " ")))
+
+for (index in seq_along(resolutions)*2-1) {
+  print(plot_grid(allplots[[index]], allplots[[index+1]], labels = c(plotlabels[index], plotlabels[index+1]), label_x = 0.5, ncol = 2))
+}
+
+```
+
+
+```{r oldcode, eval=FALSE}
+# previous code that also generated plots for clusterings with different preprocessing steps
+
+# ## RNA-based
+# 
+# ```{r annotated-clusterings-rna, fig.width=10.0, fig.show = 'asis', echo=T, eval=is_annotated}
+# 
+# resolutions <- manifest$clustree_resolutions
+# 
+# doplot <- function(res){
+#   clustering_name <- paste0("RNA_snn_res.", res)
+#   annos <- se[[c(clustering_name, "Kunz")]]
+#   annos <- data.frame(xtabs(annos, formula = as.formula(paste0("~ Kunz + ", clustering_name)))) %>%
+#             group_by(across(all_of( {{clustering_name}} ))) %>%
+#             mutate(relative.freq = Freq / sum(Freq), Freq = NULL)
+#   list(
+#     ggplot(annos, aes_string("Kunz", clustering_name, fill = "relative.freq")) +
+#       geom_tile() +
+#       theme_minimal() + theme(axis.title = element_blank()) +
+#       guides(x =  guide_axis(angle = 90)) +
+#       coord_equal() +
+#       scale_fill_gradient(low = "white", high = "darkred", name = "Relative\nFrequency",
+#                           limits = c(0., 1.), breaks = c(0., 1.), 
+#                           labels = c("0%", "100%")),
+#     DimPlot(se, reduction = "rnaumap", group.by = clustering_name) + 
+#       theme(legend.position = "none", plot.title = element_blank(), plot.subtitle = element_blank()) + coord_equal(),
+#     FeatureOverlay(se, features = c(clustering_name), pt.size = 1.2) +
+#       theme_minimal() + 
+#       coord_equal() +
+#       theme(legend.title = element_blank(), title = element_blank(),
+#             axis.title = element_blank(), axis.text = element_blank(),
+#             legend.position = "bottom")
+#   )
+# }
+# 
+# allplots = unlist(lapply(resolutions, doplot), recursive = F)
+# plotlabels = unlist(lapply(resolutions, function(res) list(paste("Resolution", res), " ", " ")))
+# 
+# for (index in seq_along(resolutions)*3-2) {
+#   print(plot_grid(allplots[[index]], allplots[[index+1]], allplots[[index+2]], rel_widths = c(0.6, 1., 1.),
+#                   labels = c(plotlabels[index], plotlabels[index+1], plotlabels[index+2]), label_x = 0.5, ncol = 3))
+#   # here comes the statistics, plot with cat since we show the output 'asis'
+#   statistics = mclustcomp(as.numeric(as.factor(se$Kunz)), 
+#                           as.numeric(as.factor(se[[paste0("RNA_snn_res.", resolutions[(index+2)/3])]][,1])))
+#   cat("Higher is better:\n")
+#   cat("Rand Index:", subset(statistics, types == "rand")$scores, "\n")
+#   cat("Adjusted Rand Index:", subset(statistics, types == "adjrand")$scores, "\n")
+#   cat("Mutual Information:", subset(statistics, types == "mi")$scores, "\n")
+#   cat("Normalized Mutual Information (Strehl and Ghosh):", subset(statistics, types == "nmi1")$scores, "\n")
+#   cat("Normalized Mutual Information (Fred and Jain):", subset(statistics, types == "nmi2")$scores, "\n")
+#     cat("Overlap Coefficient:", subset(statistics, types == "overlap")$scores, "\n")
+#   cat("Lower is better:\n")
+#   cat("Variation of Information:", subset(statistics, types == "vi")$scores, "\n")
+#   cat("Normalized Variation of Information:", subset(statistics, types == "nvi")$scores, "\n")
+# }
+# 
+# ```
+# 
+# ```{r missing-annos-clusterings-rna, fig.show = 'asis', echo=T, eval=!(is_annotated)}
+# 
+# resolutions <- manifest$clustree_resolutions
+# 
+# doplot <- function(res){
+#   clustering_name <- paste0("RNA_snn_res.", res)
+#   list(
+#     DimPlot(se, reduction = "rnaumap", group.by = clustering_name) + 
+#       theme(legend.position = "none"),
+#     FeatureOverlay(se, features = c(clustering_name), pt.size = 1.2) +
+#       theme_minimal() + 
+#       coord_equal() +
+#       theme(legend.title = element_blank(), title = element_blank(),
+#             axis.title = element_blank(), axis.text = element_blank(),
+#             legend.position = "bottom")
+#   )
+# }
+# 
+# allplots = unlist(lapply(resolutions, doplot), recursive = F)
+# plotlabels = unlist(lapply(resolutions, function(res) list(paste("Resolution", res), " ")))
+# 
+# for (index in seq_along(resolutions)*2-1) {
+#   print(plot_grid(allplots[[index]], allplots[[index+1]], labels = c(plotlabels[index], plotlabels[index+1]), label_x = 0.5, ncol = 2))
+# }
+# 
+# ```
+# 
+# ## RNA-based with ICA instead of PCA
+# 
+# ```{r annotated-clusterings-rnaica, fig.width=10.0, fig.show = 'asis', echo=T, eval=is_annotated}
+# 
+# res = manifest$ica_clustering_resolution
+# ica.components <- manifest$ica_clustring_components
+# 
+# doplot <- function(nica){
+#   clustering_name <- paste0("RNA_ICA",nica,"_snn_res.", res)
+#   ica_umap_name <- paste0("ica",nica,"umap")
+#   annos <- se[[c(clustering_name, "Kunz")]]
+#   annos <- data.frame(xtabs(annos, formula = as.formula(paste0("~ Kunz + ", clustering_name)))) %>%
+#             group_by(across(all_of( {{clustering_name}} ))) %>%
+#             mutate(relative.freq = Freq / sum(Freq), Freq = NULL)
+#   list(
+#     ggplot(annos, aes_string("Kunz", clustering_name, fill = "relative.freq")) +
+#       geom_tile() +
+#       theme_minimal() + theme(axis.title = element_blank()) +
+#       guides(x =  guide_axis(angle = 90)) +
+#       coord_equal() +
+#       scale_fill_gradient(low = "white", high = "darkred", name = "Relative\nFrequency",
+#                           limits = c(0., 1.), breaks = c(0., 1.), 
+#                           labels = c("0%", "100%")),
+#     DimPlot(se, reduction = ica_umap_name, group.by = clustering_name) + 
+#       theme(legend.position = "none", plot.title = element_blank(), plot.subtitle = element_blank()) + coord_equal(),
+#     FeatureOverlay(se, features = c(clustering_name), pt.size = 1.2) +
+#       theme_minimal() + 
+#       coord_equal() +
+#       theme(legend.title = element_blank(), title = element_blank(),
+#             axis.title = element_blank(), axis.text = element_blank(),
+#             legend.position = "bottom")
+#   )
+# }
+# 
+# allplots = unlist(lapply(ica.components, doplot), recursive = F)
+# plotlabels = unlist(lapply(ica.components, function(nica) list(paste("ICA Components", nica,"Resolution", res), " ", " ")))
+# 
+# for (index in seq_along(ica.components)*3-2) {
+#   print(plot_grid(allplots[[index]], allplots[[index+1]], allplots[[index+2]], rel_widths = c(0.6, 1., 1.),
+#                   labels = c(plotlabels[index], plotlabels[index+1], plotlabels[index+2]), label_x = 0.5, ncol = 3))
+#   # here comes the statistics, plot with cat since we show the output 'asis'
+#   statistics = mclustcomp(as.numeric(as.factor(se$Kunz)), 
+#                           as.numeric(as.factor(se[[paste0("RNA_ICA",ica.components[(index+2)/3],"_snn_res.",res)]][,1])))
+#   cat("Higher is better:\n")
+#   cat("Rand Index:", subset(statistics, types == "rand")$scores, "\n")
+#   cat("Adjusted Rand Index:", subset(statistics, types == "adjrand")$scores, "\n")
+#   cat("Mutual Information:", subset(statistics, types == "mi")$scores, "\n")
+#   cat("Normalized Mutual Information (Strehl and Ghosh):", subset(statistics, types == "nmi1")$scores, "\n")
+#   cat("Normalized Mutual Information (Fred and Jain):", subset(statistics, types == "nmi2")$scores, "\n")
+#     cat("Overlap Coefficient:", subset(statistics, types == "overlap")$scores, "\n")
+#   cat("Lower is better:\n")
+#   cat("Variation of Information:", subset(statistics, types == "vi")$scores, "\n")
+#   cat("Normalized Variation of Information:", subset(statistics, types == "nvi")$scores, "\n")
+# }
+# 
+# ```
+# 
+# ```{r missing-annos-clusterings-rnaica, fig.show = 'asis', echo=T, eval=!(is_annotated)}
+#
+# res = manifest$ica_clustering_resolution
+# ica.components <- manifest$ica_clustring_components
+# 
+# doplot <- function(nica){
+#   clustering_name <- paste0("RNA_ICA",nica,"_snn_res.", res)
+#   ica_umap_name <- paste0("ica",nica,"umap")
+#   list(
+#     DimPlot(se, reduction = ica_umap_name, group.by = clustering_name) + 
+#       theme(legend.position = "none"),
+#     FeatureOverlay(se, features = c(clustering_name), pt.size = 1.2) +
+#       theme_minimal() + 
+#       coord_equal() +
+#       theme(legend.title = element_blank(), title = element_blank(),
+#             axis.title = element_blank(), axis.text = element_blank(),
+#             legend.position = "bottom")
+#   )
+# }
+# 
+# allplots = unlist(lapply(ica.components, doplot), recursive = F)
+# plotlabels = unlist(lapply(ica.components, function(nica) list(paste("ICA Components", nica,"Resolution", res), " ")))
+# 
+# for (index in seq_along(resolutions)*2-1) {
+#   print(plot_grid(allplots[[index]], allplots[[index+1]], labels = c(plotlabels[index], plotlabels[index+1]), label_x = 0.5, ncol = 2))
+# }
+# ```
+
+# Clustering tree
+# ## RNA-based
+# 
+# ```{r clustree-rna, fig.width=8.5, fig.asp=.75, fig.show = 'hold', fig.cap=figRef("clustree-ref", "Results from clustering using Seurat with resolution parameters from zero to 1. Nodes are colored according to the value of the resolution and sized according to the number of samples they represent. Edges are colored according to the number of samples (from blue representing few to yellow representing many). The transparency is adjusted according to the in-proportion, with stronger lines showing edges that are more important to the higher-resolution cluster. Cluster labels are randomly assigned by the clustering algorithm. [Paper](https://doi.org/10.1093/gigascience/giy083)"), echo=T, eval=T}
+# clustree(se, prefix = "RNA_snn_res.", node_size_range = c(4, 11), node_text_colour = "white") +
+#   mytheme() +
+#   theme(
+#     axis.title = element_blank(),
+#     axis.text = element_blank(),
+#     axis.ticks = element_blank(),
+#     panel.border = element_rect(fill = NA, colour = NA)
+#   ) +
+#   scale_color_manual(values = tol12qualitative) +
+#   guides(color = guide_legend(ncol = 2))
+# ```
+```
+
+# Clustering tree
+
+## SCT-based
+
+```{r clustree, fig.width=8.5, fig.asp=.75, fig.show = 'hold', fig.cap=figRef("clustree-ref", "Results from clustering using Seurat with resolution parameters from zero to 1. Nodes are colored according to the value of the resolution and sized according to the number of samples they represent. Edges are colored according to the number of samples (from blue representing few to yellow representing many). The transparency is adjusted according to the in-proportion, with stronger lines showing edges that are more important to the higher-resolution cluster. Cluster labels are randomly assigned by the clustering algorithm. [Paper](https://doi.org/10.1093/gigascience/giy083)"), echo=T, eval=T}
+clustree(se, prefix = "SCT_snn_res.", node_size_range = c(4, 11), node_text_colour = "white") +
+  mytheme() +
+  theme(
+    axis.title = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    panel.border = element_rect(fill = NA, colour = NA)
+  ) +
+  scale_color_manual(values = tol12qualitative) +
+  guides(color = guide_legend(ncol = 2))
+
+```
+

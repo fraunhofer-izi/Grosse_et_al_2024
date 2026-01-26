@@ -1,0 +1,198 @@
+---
+title: "Module Scores from various sources"
+output:
+  workflowr::wflow_html:
+    code_folding: hide
+    fig_caption: yes
+    number_sections: yes
+    pandoc_args: []
+    self_contained: yes
+    smart: yes
+    toc: yes
+    toc_depth: 5
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r libs-and-functions, echo = F, message = FALSE, warning=FALSE}
+library("Cairo")
+library("tidyverse")
+library("Seurat")
+library("yaml")
+library("ggplot2")
+library("cowplot")
+library("stats")
+library("clustree")
+library("naturalsort")
+library("reshape2")
+library("patchwork")
+library("scales")
+library("kableExtra")
+library("scico")
+library("semla")
+
+
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# Functions
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+source("code/helper/Rmarkdown-style.R")
+theme_set(mytheme(base_size = 7))
+
+```
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE, cache=F}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  error = FALSE,
+  message = FALSE,
+  cache = FALSE,
+  warning = FALSE,
+  results = TRUE,
+  fig.align = 'center',
+  fig.show = 'hold',
+  autodep = TRUE,
+  dpi = 96,
+  dev = c('CairoPNG') # alternative: dev = c('png') type = 'cairo'
+)
+```
+
+```{r manifest-and-objects, echo=F}
+manifest = yaml.load_file("./assets/manifest.yaml")
+current_sample = scan(file.path(manifest$workdata_parent, ".tmp/active_sample"), what = "character", quiet = T)
+sample_manifest = manifest[[current_sample]]
+
+default_plot_focus = sample_manifest$crop_area
+source("code/helper/FG_plotting_functions.R")
+base_pt_size = estim_point_size(sample_manifest)
+
+work.dir = file.path(manifest$workdata_parent, sample_manifest$workdata)
+se = readRDS(file.path(work.dir, "06_seurat.rds"))
+chosen.resolution = paste0("SCT_snn_res.", sample_manifest$seurat_clustering_resolution)
+has.annotations = "Kunz" %in% names(se@meta.data)
+all_ms = Misc(se, "module_scores")
+
+gs_ncol = 2
+```
+
+```{r sample-title, results='asis', echo = FALSE}
+sample_full_name = sample_manifest$full_name
+cat("Sample: ", sample_full_name, "\n")
+```
+
+Author: Florian Große, Michael Rade (Last updated: `r Sys.Date()`)
+
+# Module Scores
+
+All module scores here are derived from the Seurat AddModuleScore function using non-size-normalized log-count data (or regular normalized and log transformed data if indicated).
+
+## Panglao DB
+
+Selected markers from the Panglao DB list of cell type markers.
+
+```{r panglao-markers-prep, fig.width=8.5, eval=T, echo=F}
+# module scores added in rscript
+pg_gs = all_ms$panglao_logcounts
+```
+
+```{r panglao-markers-vis, fig.width=8.5, fig.height=ceiling(length(pg_gs)/gs_ncol)*(10/gs_ncol), fig.cap="",  eval=T, echo=F, fig.show='hold'}
+pl = lapply(pg_gs, function(gs){
+  feature_overlay(se = se, features = gs, titles = gs, pt.size = base_pt_size, limits = c(0., NA))
+})
+
+plot(plot_grid(plotlist = pl, ncol = gs_ncol, axis = "tblr", align = "hv"))
+
+```
+
+
+```{r jerby-preface, results='asis', echo = FALSE}
+has_jerby = "jerby_logcounts" %in% names(all_ms)
+fig.h = 1.
+if (has_jerby) {
+  msg = "## Jerby-Arnon + Sole-Boldo based markers
+
+Markers derived from these publications accessible data.
+"
+} else {
+  msg = "
+  Jerby-Arnon markers not present
+  "
+}
+cat(msg)
+```
+
+```{r jerby-markers-prep, fig.width=8.5, eval=has_jerby, echo=F}
+# module scores added in rscript
+ja_gs = all_ms$jerby_logcounts
+fig.h = ceiling(length(ja_gs)/gs_ncol)*(10/gs_ncol)
+```
+
+```{r jerby-markers-vis, fig.width=8.5, fig.height=fig.h, fig.cap="",  eval=has_jerby, echo=F, fig.show='hold'}
+pl = lapply(ja_gs, function(gs){
+  feature_overlay(se = se, features = gs, titles = gs, pt.size = base_pt_size, limits = c(0., NA))
+})
+
+plot(plot_grid(plotlist = pl, ncol = gs_ncol, axis = "tblr", align = "hv"))
+
+```
+
+```{r jerby-normalized-preface, results='asis', echo = FALSE}
+if (has_jerby) {
+  cat("
+  
+The following module scores were computed from size-normalized spots (the usual way to compute Module Scores for single cell data). As a result, weaker signals (like immune cell types) may be suppressed in spots with high absolute expression, but for cells with low absolute expression (stromal tissue or hypoxic tumore cores) it gets easier to see prevalent cell types despite the signal being weak in comparison to neighboring spots.  
+
+")
+}
+```
+
+```{r jerby-markers-normalized-prep, fig.width=8.5, eval=has_jerby, echo=F}
+# module scores added in rscript
+ja_gs = all_ms$jerby_normalized
+fig.h = ceiling(length(ja_gs)/gs_ncol)*(10/gs_ncol)
+```
+
+```{r jerby-markers-normalized-vis, fig.width=8.5, fig.height=fig.h, fig.cap="",  eval=has_jerby, echo=F, fig.show='hold'}
+pl = lapply(ja_gs, function(gs){
+  feature_overlay(se = se, features = gs, titles = gs, pt.size = base_pt_size, limits = c(0., NA))
+})
+
+plot(plot_grid(plotlist = pl, ncol = gs_ncol, axis = "tblr", align = "hv"))
+
+```
+
+```{r other-preface, results='asis', echo = FALSE}
+has_other = "other_scores_logcounts" %in% names(all_ms)
+fig.h = 1.
+if (has_other) {
+  msg = "## Miscelanoeous Scores
+
+Markers from other publications.
+"
+} else {
+  msg = "
+  
+  "
+}
+cat(msg)
+```
+
+```{r other-markers-prep, fig.width=8.5, eval=has_other, echo=F}
+# module scores added in rscript
+other_logcounts = all_ms$other_scores_logcounts
+other_normalized = all_ms$other_scores_normalized
+other_gs = c(other_logcounts, other_normalized)
+fig.h = ceiling(length(other_gs)/gs_ncol)*(10/gs_ncol)
+```
+
+```{r other-markers-vis, fig.width=8.5, fig.height=fig.h, fig.cap="",  eval=has_other, echo=F, fig.show='hold'}
+pl = lapply(other_gs, function(gs){
+  feature_overlay(se = se, features = gs, titles = gs, pt.size = base_pt_size, limits = c(0., NA))
+})
+
+plot(plot_grid(plotlist = pl, ncol = gs_ncol, axis = "tblr", align = "hv"))
+
+```
+

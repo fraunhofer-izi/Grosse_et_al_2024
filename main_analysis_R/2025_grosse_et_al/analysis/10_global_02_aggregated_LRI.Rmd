@@ -1,0 +1,419 @@
+---
+title: "Aggregated Ligand-Receptor Analyses from marker-gene defined regions"
+output:
+  workflowr::wflow_html:
+    code_folding: hide
+    fig_caption: yes
+    number_sections: yes
+    pandoc_args: []
+    self_contained: yes
+    smart: yes
+    toc: yes
+    toc_depth: 5
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+Author: Florian Große (Last updated: `r Sys.Date()`)
+
+```{r libs-and-functions, echo = F, message = FALSE, warning=FALSE}
+library("Cairo")
+library("tidyverse")
+library("Seurat")
+library("yaml")
+library("ggplot2")
+library("cowplot")
+library("rlang")
+library("purrr")
+library("naturalsort")
+library("reshape2")
+library("ggnewscale")
+library("DT")
+library("semla")
+library("stringr")
+library("scico")
+library("circlize")
+
+# bioc
+library("SummarizedExperiment")
+library("GenomicRanges")
+library("recount")
+library("biomaRt")
+
+library("NICHES")
+
+library("liana")
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# Functions
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+source("code/helper/Rmarkdown-style.R")
+
+theme_set(mytheme(base_size = 7))
+
+render_table  <- function(tabl){
+  numericcols = grep(colnames(tabl), pattern = "^zscore|^mean_diff|^log2FC", value = T)
+  pvalcols = grep(colnames(tabl), pattern = "^pval", value = T)
+  shortcols = setdiff(colnames(tabl), c(pvalcols, "mechanism"))
+  
+  tabl %>%
+  dplyr::select(mechanism, count_signif, summed_zscores, starts_with("significant_in"), 
+         starts_with("mean_diff"), starts_with("log2FC"), starts_with("zscore"), everything()) %>%
+  arrange(desc(count_signif), desc(summed_zscores)) %>%
+  DT::datatable(
+    rownames = F, escape = F, width = '100%', extensions = c('FixedColumns', 'Scroller', 'Buttons', 'KeyTable'),
+    fillContainer = T,
+    options = list(
+      buttons = c('copy', 'csv', 'excel'),
+      deferRender = T,
+      scrollY = 300,
+      scroller = T,
+      scrollX = T,
+      autoWidth = T,
+      columnDefs = list(list(width = "150px", targets = "mechanism"), list(width = '50px', targets = shortcols)),
+      fixedColumns = list(leftColumns = 1)
+    )
+  ) %>%
+  formatStyle('mechanism',  fontWeight = 'bold') %>%
+  formatRound(numericcols, digits = 2)
+}
+
+save_table <- function(tabl, filename){
+  tabl = tabl %>%
+    dplyr::select(mechanism, count_signif, summed_zscores, starts_with("significant_in"), 
+           starts_with("mean_diff"), starts_with("log2FC"), starts_with("zscore"), everything()) %>%
+    arrange(desc(count_signif), desc(summed_zscores))
+  readr::write_excel_csv(x = tabl, file = filename)
+}
+
+## Annotation and plotting functions in separate file
+source("code/helper/aggregated_LRI_helper.R")
+
+```
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE, cache=F}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  error = FALSE,
+  message = FALSE,
+  cache = FALSE,
+  warning = FALSE,
+  results = TRUE,
+  fig.align = 'center',
+  fig.show = 'hold',
+  autodep = TRUE,
+  dpi = 96,
+  dev = c('CairoPNG') # alternative: dev = c('png') type = 'cairo'
+)
+```
+
+# Melanoma samples
+
+```{r manifest-and-objects, echo=F}
+manifest = yaml.load_file("assets/manifest.yaml")
+all.samples = setdiff(c(manifest$samples, manifest$external_samples), manifest$rejected_samples)
+# niches settings
+Niches_result_used = manifest$Niches_result_used
+which.result = list(CTN = "border.markers.CellToNeighborhood",
+                    NTC = "border.markers.NeighborhoodToCell")[[Niches_result_used]]
+Niches_normalization_used = manifest$Niches_normalization_used
+
+# grouping of all samples (melanoma subtypes and so on)
+sample_annos = sapply(all.samples, function(sample_id){
+  sample_manifest = manifest[[sample_id]]
+  return(sample_manifest$type)
+})
+sample_anno_colmap = setNames(c(tol11qualitative[1:length(unique(sample_annos))], "black"),
+                              nm = c(unique(sample_annos), NA))
+
+
+LRDEs = lapply(all.samples, function(sample_id){
+  print(paste("Loading data for sample", sample_id))
+  sample_manifest = manifest[[sample_id]]
+  work.dir = file.path(manifest$workdata_parent, sample_manifest$workdata)
+  resfile = file.path(work.dir, "09_NICHES_LRDE_res.rds")
+  has.results = file.exists(resfile)
+  if (has.results) {
+    res = readRDS(resfile)
+  } else {
+    print("Sample has no results file, skipping.")
+    res = NA
+  }
+  # contains border.markers.NeighborhoodToCell
+  #          border.markers.CellToNeighborhood
+  return(res)
+})
+names(LRDEs) = all.samples
+
+results.are.available = sapply(LRDEs, function(x)all(!(is.na(x))))
+
+all_naevus_samples = intersect(all.samples, manifest$naevus_samples)
+all_naevus_samples = all_naevus_samples[results.are.available[all_naevus_samples]]
+all_naevus_dfs = LRDEs[all_naevus_samples]
+joint_naevi_df = make_consensus_df(all_naevus_dfs, results.name = which.result, results.type = Niches_normalization_used)
+joint_naevi_df = annotate_df_with_significance_info(joint_naevi_df)
+
+# POZNIAK data
+all_external_samples = intersect(all.samples, manifest$external_samples)
+all_external_samples = all_external_samples[results.are.available[all_external_samples]]
+all_external_dfs = LRDEs[all_external_samples]
+joint_externals_df = make_consensus_df(all_external_dfs, results.name = which.result, results.type = Niches_normalization_used)
+joint_externals_df = annotate_df_with_significance_info(joint_externals_df)
+
+# all other
+all_mela_samples = setdiff(setdiff(all.samples, manifest$naevus_samples), manifest$external_samples)
+all_mela_samples = all_mela_samples[results.are.available[all_mela_samples]]
+all_mela_dfs = LRDEs[all_mela_samples]
+joint_melas_df = make_consensus_df(all_mela_dfs, results.name = which.result, results.type = Niches_normalization_used)
+joint_melas_df = annotate_df_with_significance_info(joint_melas_df)
+
+```
+
+
+```{r df-prep, echo=F}
+TCGA_ref = make_TCGA.se(cohort = "TCGA-SKCM", sites = c("Primary Tumor"))
+GTEx.expression.annos = readRDS(file.path(manifest$workdata_parent, "GTEx9_LRI_gene_expression_annos.Rds"))
+JA.expression.annos = readRDS(file.path(manifest$workdata_parent, "jerby.se_LRI_gene_expression_annos.Rds"))
+StubS.expression.annos = readRDS(file.path(manifest$workdata_parent, "stubs.se_LRI_gene_expression_annos.Rds"))
+
+# add potential cell types of interest in the different annotation sources here
+add.annos = function(df){
+  # cell.type.filter usage:
+  # `display name in results` = `name in data object` # repeat for each celltype of interest
+  df = add.TCGA.annos(df, TCGA_reference = TCGA_ref)
+  df = add.sc.annos(df, expression.annos = GTEx.expression.annos, annos.name = "GTEx",
+                    cell.type.filter = c("DCs/Macrophages" = "Immune (DC/macrophage)", 
+                                         "Langerhans Cells" = "Immune (Langerhans)",
+                                         "T Cells" = "Immune (T cell)",
+                                         "Pericytes/SMCs" = "Pericyte/SMC",
+                                         "Lymphatic Endothelial Cells" = "Endothelial cell (lymphatic)", 
+                                         "Vascular Endothelial Cells" = "Endothelial cell (vascular)", 
+                                         "Fibroblasts" = "Fibroblast",
+                                         "Basal Keratinocytes" = "Epithelial cell (basal keratinocyte)", 
+                                         "Suprabasal Keratinocytes" = "Epithelial cell (suprabasal keratinocyte)", 
+                                         "Melanocytes" = "Melanocyte"))
+  df = add.sc.annos(df, expression.annos = JA.expression.annos, annos.name = "Jerby_Arnon",
+                    cell.type.filter = c("CD4+ T Cells" = "T.CD4", 
+                                         "CD8+ T Cells" = "T.CD8",
+                                         "NK Cells" = "NK",
+                                         "B Cells" = "B.cell",
+                                         "Macrophages" = "Macrophage",
+                                         "Endothelial Cells" = "Endo.", 
+                                         "CAFs" = "CAF",
+                                         "Malignant Cells" = "Mal"))
+  df = add.sc.annos(df, expression.annos = StubS.expression.annos, annos.name = "Stubenvoll_Schmidt",
+                    cell.type.filter = c("Cytotoxic T Cells" = "Tcyt-activated", 
+                                         "Effector-memory T cells" = "Teff-mem",
+                                         "Regulatory T cells" = "Treg",
+                                         "NK Cells" = "NK",
+                                         "B Cells" = "B-cells",
+                                         "Dendritic-cells" = "Dendritic-cells",
+                                         "Macrophages" = "Macrophages",
+                                         "Endothelial Cells" = "Endothelial-cells",
+                                         "Keratinocytes" = "Keratinocytes",
+                                         "Fibroblasts" = "Fibroblasts",
+                                         "Melanoma (melanocytic)" = "Mel-trans-melan",
+                                         "Melanoma (transitory)" = "Mel-trans",
+                                         "Melanoma (nc-like)" = "Mel-nc-like"))
+  return(df)
+}
+
+# long dash: "  —  "
+
+
+```
+
+## Samples of all melanomas that will be used in the paper.
+
+```{r all-mela-samples, results='asis', echo=T, eval=T}
+for (sample in all_mela_samples){
+  sample_full_name = manifest[[sample]]$full_name
+  cat("* ", sample, " (", sample_full_name, ") \n", sep = "")
+}
+cat("\n")
+```
+
+```{r all-melas-samples-prep, echo=F, eval=T}
+save_table(tabl = (joint_melas_df), filename = "data/LRI_results_melanomas_bare.csv")
+
+# remove all samples not significant in any sample for the annotated output table, and fill missing
+annotated_malanomas_table = add.annos(joint_melas_df) %>%
+  mutate(across(contains("significant_in"), .fn = ~ replace_na(.x, F)),
+         across(contains("pval_"), .fn = ~ replace_na(.x, 1)),
+         across(contains("zscore_"), .fn = ~ replace_na(.x, 0)),
+         across(contains("log2FC_"), .fn = ~ replace_na(.x, 0)),
+         summed_zscores = rowSums(across(contains("zscore_")), na.rm = F)) %>%
+  filter(count_signif > 0)
+save_table(tabl = annotated_malanomas_table, filename = "data/LRI_results_melanomas_with_annos.csv.gz")
+
+# subset to mechansisms significant in >50% of samples
+joint_melas_df_50pct_signif_positive = joint_melas_df %>%
+  filter(count_signif > (0.5*length(all_mela_dfs)))
+joint_melas_df_all_signif_positive = joint_melas_df %>%
+  filter(count_signif == length(all_mela_dfs))
+```
+
+```{r all-mela-samples-asps, results='asis', echo=T, eval=T}
+pct50_asp = 0.5 + (nrow(joint_melas_df_50pct_signif_positive)/100)
+pct100_asp = 0.5 + (nrow(joint_melas_df_all_signif_positive)/100)
+
+cat("\n## ", Niches_normalization_used, ": ", Niches_result_used, "\n")
+```
+
+## Significant in all of our samples
+
+Significant in all samples, annotated with Stubenvoll & Schmidt expression data:
+
+```{r vis2-a-allsignificant-heatmap, fig.width=10.0, fig.asp=pct100_asp, echo=T, eval=nrow(joint_melas_df_all_signif_positive)>0}
+pct100_data = add.annos(joint_melas_df_all_signif_positive)
+plot_combined_df(pct100_data, plot_TCGA = "quant", plot_GTEx = "none", plot_JA = "none", plot_StubS = "quant",
+                 legends.rel.heights = 0.1/pct100_data)
+```
+
+```{r vis2-b-allsignificant-circos, fig.width=10.0, fig.asp=1., echo=T, eval=nrow(joint_melas_df_all_signif_positive)>0}
+circle.vis.LRI(pct100_data)
+```
+
+```{r vis2-c-allsignificant-table, eval=nrow(joint_melas_df_all_signif_positive)>0}
+render_table(joint_melas_df_all_signif_positive)
+```
+
+## Filtered and annotated with external samples:
+
+Excluded: HLA-_, CD4, CD8_, CD3_ containing mechanisms
+
+```{r vis-filt-a-50pctsignificant-heatmap, fig.width=10.0, fig.asp=pct50_asp, echo=T, eval=nrow(joint_melas_df_50pct_signif_positive)>0}
+pct50_data = add.annos(joint_melas_df_50pct_signif_positive)
+exclude_regexes = c("^HLA-", "^CD4$", "^CD8", "^CD3") 
+# exclude if any of the above occurs in either source or target column
+pct50_data_excludes = apply(sapply(exclude_regexes, function(r)str_detect(pct50_data$target_genesymbol, pattern = r)), FUN = any, MARGIN = 1) | apply(sapply(exclude_regexes, function(r)str_detect(pct50_data$source_genesymbol, pattern = r)), FUN = any, MARGIN = 1)
+pct50_data_df_wo_excluded = pct50_data[!pct50_data_excludes,]
+
+plot_combined_df(pct50_data_df_wo_excluded, anno.signifi.legend = "plot", plot_StubS = "quant",
+                 order.signif.overwrite = T, legends.rel.heights = 0.1/pct50_asp, 
+                 plot_additional_dfs_list = list(joint_naevi_df, joint_externals_df))
+```
+
+```{r vis-filt-b-50pctsignificant-circos, fig.width=10.0, fig.asp=1., echo=T, eval=nrow(joint_melas_df_50pct_signif_positive)>0}
+circle.vis.LRI(pct50_data_df_wo_excluded)
+```
+
+```{r vis-filt-c-50pctsignificant-table, eval=nrow(joint_melas_df_50pct_signif_positive)>0}
+render_table(pct50_data_df_wo_excluded)
+```
+
+# External Samples
+
+## Pozniak et al. 2024 samples
+
+```{r external-samples, results='asis', echo=T, eval=T}
+for (sample in all_external_samples){
+  sample_full_name = manifest[[sample]]$full_name
+  cat("* ", sample, " (", sample_full_name, ") \n", sep = "")
+}
+cat("\n")
+```
+
+```{r external-samples-prep, echo=F, eval=T}
+samples_50pct = (0.5*length(all_external_samples))
+
+save_table(tabl = (joint_externals_df), filename = "data/LRI_results_pozniak_bare.csv")
+# remove all samples not significant in any sample for the annotated output table
+joint_externals_df_anno = add.annos(joint_externals_df) %>%
+  mutate(across(contains("significant_in"), .fn = ~ replace_na(.x, F)),
+         across(contains("pval_"), .fn = ~ replace_na(.x, 1)),
+         across(contains("zscore_"), .fn = ~ replace_na(.x, 0)),
+         across(contains("log2FC_"), .fn = ~ replace_na(.x, 0)),
+         summed_zscores = rowSums(across(contains("zscore_")), na.rm = F)) %>%
+  filter(count_signif > 0)
+save_table(tabl = joint_externals_df_anno, filename = "data/LRI_results_pozniak_with_annos.csv.gz")
+# as before 
+externals_50pct_signif_positive = joint_externals_df %>% filter(count_signif>samples_50pct)
+```
+
+```{r external-samples-asps, results='asis', echo=T, eval=T}
+external_anno_df = add.annos(externals_50pct_signif_positive)
+
+exclude_regexes = c("^HLA-", "^CD4$", "^CD8", "^CD3") 
+external_df_excludes = apply(sapply(exclude_regexes, function(r)str_detect(external_anno_df$target_genesymbol, pattern = r)), FUN = any, MARGIN = 1) | apply(sapply(exclude_regexes, function(r)str_detect(external_anno_df$source_genesymbol, pattern = r)), FUN = any, MARGIN = 1)
+external_anno_df_wo_excluded = external_anno_df[!external_df_excludes,]
+
+pct50_asp = 0.5 + (nrow(external_anno_df_wo_excluded)/100)
+
+cat("\n## ", Niches_normalization_used, ": ", Niches_result_used, "\n")
+```
+
+## Significant in > 50%
+
+Excluded: HLA-_, CD4, CD8_, CD3_ containing mechanisms
+
+```{r vis1-external-heatmap, fig.width=10.0, fig.asp=pct50_asp, echo=T, eval=nrow(externals_50pct_signif_positive)>0}
+plot_combined_df(external_anno_df_wo_excluded, plot_TCGA = "quant", plot_GTEx = "none", plot_JA = "quant", 
+                 plot_signif = F, legends.rel.heights = 0.1/pct50_asp)
+```
+
+```{r vis1-external-circos, fig.width=10.0, fig.asp=1., echo=T, eval=nrow(externals_50pct_signif_positive)>0}
+circle.vis.LRI(external_anno_df_wo_excluded)
+```
+
+```{r vis1-external-table, eval=nrow(joint_melas_df_50pct_signif_positive)>0}
+render_table(external_anno_df_wo_excluded)
+```
+
+# Naevi Samples
+
+## Samples of compound naevi:
+
+```{r naevi-samples, results='asis', echo=F, eval=T}
+for (sample in all_naevus_samples){
+  sample_full_name = manifest[[sample]]$full_name
+  cat("* ", sample, " (", sample_full_name, ") \n", sep = "")
+}
+cat("\n")
+naeviall_signif_positive=tibble()
+pct100_asp=0
+```
+
+```{r naevi-samples-prep, echo=F, eval=length(all_naevus_dfs)>0}
+save_table(tabl = (joint_naevi_df), filename = "data/LRI_results_nevi_bare.csv")
+# remove all samples not significant in any sample for the annotated output table
+annotated_nevi_table = add.annos(joint_naevi_df) %>%
+  mutate(across(contains("significant_in"), .fn = ~ replace_na(.x, F)),
+         across(contains("pval_"), .fn = ~ replace_na(.x, 1)),
+         across(contains("zscore_"), .fn = ~ replace_na(.x, 0)),
+         across(contains("log2FC_"), .fn = ~ replace_na(.x, 0)),
+         summed_zscores = rowSums(across(contains("zscore_")), na.rm = F)) %>%
+  filter(count_signif > 0)
+save_table(tabl = annotated_nevi_table, filename = "data/LRI_results_nevi_with_annos.csv.gz")
+# since we only have one naevus with any kind of signal, order by significance and take top50 only
+order_by_col = which(startsWith(x = colnames(joint_naevi_df), prefix = "pval_adj"))
+if (length(order_by_col)>1) stop("More than 1 naevi in analysis, remove Top50 filter again!")
+naeviall_signif_positive = joint_naevi_df %>% 
+  arrange(colnames(joint_naevi_df)[order_by_col]) %>%
+  slice_head(n = 50)
+  #filter(count_signif==length(joint_naevi_df)) %>%
+```
+
+```{r all-naevi-asps, results='asis', echo=T, eval=length(all_naevus_dfs)>0}
+pct100_asp = 0.5 + (nrow(naeviall_signif_positive)/100)
+
+cat("\n## ", Niches_normalization_used, ": ", Niches_result_used, "\n")
+```
+
+## Significant in all
+
+```{r vis5-a, fig.width=10.0, fig.asp=pct100_asp, echo=T, eval=nrow(naeviall_signif_positive)>0}
+full = add.annos(naeviall_signif_positive)
+plot_combined_df(full, plot_TCGA = "quant", plot_GTEx = "none", plot_JA = "quant",
+                 plot_signif = F, legends.rel.heights = 0.1/pct100_asp)
+```
+
+```{r vis5-b, fig.width=10.0, fig.asp=1., echo=T, eval=nrow(naeviall_signif_positive)>0}
+circle.vis.LRI(full)
+```
+
+```{r vis5-c-allm1significant-table, eval=nrow(naeviall_signif_positive)>0}
+render_table(naeviall_signif_positive)
+```

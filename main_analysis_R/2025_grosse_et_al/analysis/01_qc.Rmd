@@ -1,0 +1,421 @@
+---
+title: "Quality control"
+output:
+  workflowr::wflow_html:
+    code_folding: hide
+    fig_caption: yes
+    number_sections: yes
+    pandoc_args: []
+    self_contained: yes
+    smart: yes
+    toc: yes
+    toc_depth: 5
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r libs-and-functions, echo = F, message = FALSE, warning=FALSE}
+library("Cairo")
+library("tidyverse")
+library("Seurat")
+library("stringr")
+library("yaml")
+library("ggplot2")
+library("cowplot")
+library("reshape2")
+library("patchwork")
+library("kableExtra")
+library("scico")
+library("semla")
+
+# Michael color themes
+source("code/helper/Rmarkdown-style.R")
+theme_set(mytheme(base_size = 7))
+```
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE, cache=F}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  error = FALSE,
+  message = FALSE,
+  cache = FALSE,
+  warning = FALSE,
+  results = TRUE,
+  fig.align = 'center',
+  fig.show = 'hold',
+  autodep = TRUE,
+  dpi = 96,
+  dev = c('CairoPNG') # alternative: dev = c('png') type = 'cairo'
+)
+```
+
+```{r manifest-and-objects, echo=F}
+manifest = yaml.load_file("./assets/manifest.yaml")
+current_sample = scan(file.path(manifest$workdata_parent, ".tmp/active_sample"), what = "character", quiet = T)
+sample_manifest = manifest[[current_sample]]
+
+default_plot_focus = sample_manifest$crop_area
+source("code/helper/FG_plotting_functions.R")
+base_pt_size = estim_point_size(sample_manifest)
+
+work.dir = file.path(manifest$workdata_parent, sample_manifest$workdata)
+se = readRDS(file.path(work.dir, "01_seurat.rds"))
+se.full = readRDS(file.path(work.dir, "01_seurat_full.rds"))
+
+DefaultAssay(se) = "SCT"
+spatgenes = CorSpatialFeatures(se)
+DefaultAssay(se) = "Spatial"
+
+source("assets/houseKeepingMarkers.R")
+
+mt.not.present = length(rownames(se)[grepl("MT-", rownames(se))]) == FALSE
+```
+
+
+```{r sample-title, results='asis', echo = FALSE}
+sample_full_name = sample_manifest$full_name
+cat("Sample: ", sample_full_name, "\n")
+```
+
+Author: Michael Rade, Florian Große (Last updated: `r Sys.Date()`)
+
+
+# HE image
+
+```{r HE-image, fig.width=8.5, fig.asp=.7, fig.show = 'hold', echo = F, dpi = 120}
+p = ImagePlot(object = se.full, image_use = "transformed") &
+  mytheme_histoplot()
+invisible(p)
+```
+
+# Overlay features on HE image
+
+## Spots outside and inside the tissue region
+
+During library preparation, transcripts can diffuse out into the solution and end
+up anywhere outside the tissue. If you expect that you have over-permeabilized
+your tissue it could be useful to look at the expression patterns outside the
+tissue region as well. 
+
+```{r featureOverlay-all, fig.width=8.5, fig.asp=.7, fig.show = 'hold', fig.cap=figRef("featureOverlay-all-ref", ""), echo=T, eval=T}
+feature_overlay(se.full, c("nFeature_Spatial", "nCount_Spatial"), 
+                titles = c("No. of genes per spot", "No. of counts per spot"),
+                crop_area = NULL, pt.size = 1.1) &
+  theme(
+      legend.position = "top",
+      legend.direction = "horizontal",
+      legend.key.width = unit(2., "lines"),
+      legend.key.height = unit(0.6, "lines"),
+      legend.title = element_blank()
+  )
+```
+
+## Spots inside the tissue region
+
+**Mitochondrial enrichment**. The following is assumed for individual single cells: cells  with a low count depth,
+few detected genes, and a high fraction of mitochondrial counts are indicative of
+cells whose cytoplasmic mRNA has leaked out through a broken membrane, and thus,
+only mRNA located in the mitochondria is still conserved. `r if(mt.not.present){colorize("No mitochondrial genes were found in the data set.", "red")}`
+
+**Housekeeping genes** from Tirosh et al., Science 2016.: `r I(housekeeping)`
+
+```{r featureOverlay-inside, fig.width=8.5, fig.asp=1.65, fig.show = 'hold', fig.cap=figRef("featureOverlay-inside-ref", "Black spots: Number of genes or counts < 1000"), echo=T, eval=T}
+# drop anything below a set number of counts but don't change the scale when the minimum is already higher
+generate_minlimit <- function(min_counts){
+  fun = function(lims){
+    if (is.null(lims)) {
+      return(NA)
+    } else {
+      return(c(max(min_counts, min(lims)), max(lims)))
+    }
+  }
+  return(fun)
+}
+
+# legend on top
+topbar = theme(
+      legend.position = "top",
+      legend.direction = "horizontal",
+      legend.key.width = unit(2., "lines"),
+      legend.key.height = unit(0.6, "lines"),
+      legend.title = element_blank()
+    )
+
+plot_grid(
+  feature_overlay(se, "nFeature_Spatial", "Detected genes per spot", limits = generate_minlimit(1000), 
+                  pt.size = base_pt_size) & topbar,
+  feature_overlay(se, "nCount_Spatial", "Detected UMIs per spot", limits = generate_minlimit(1000),
+                  pt.size = base_pt_size) & topbar,
+  feature_overlay(se, "Perc_of_mito_spot", "% of mitochondrial genes", limits = c(0, NA),
+                  pt.size = base_pt_size) & topbar,
+  feature_overlay(se, "Perc_of_ribosomal_spot", "% of ribosomal genes", limits = c(0, NA),
+                  pt.size = base_pt_size) & topbar,
+  feature_overlay(se, "hk_exprs_ave", "Average expression of housekeeping genes",
+                  pt.size = base_pt_size) & topbar,
+  feature_overlay_discrete(se, "Phase", "Cell cycle phase",
+                           pt.size = base_pt_size) & topbar,
+  ncol = 2
+)
+```
+
+
+# Spot stats
+
+```{r spot-stats, fig.width=8.5, fig.asp=.4, fig.cap=figRef("spot-stats-ref", ""), echo=T, eval=T}
+p1 = annotatedHist(se$nFeature_Spatial, mads = 1:3) +
+  xlab("No. of genes") +
+  ylab("No. of spots") +
+  ggtitle("No. of genes per spot") + 
+  mytheme_grid(aspect.ratio = 0.6180)
+p2 = annotatedHist(se$nCount_Spatial, mads = 1:3) +
+  xlab("No. of counts") +
+  ylab("No. of spots") +
+  ggtitle("Total counts per spot") +
+  mytheme_grid(aspect.ratio = 0.6180)
+
+gene_attr = data.frame(nUMI = Matrix::rowSums(se@assays$Spatial$counts), nSpots = Matrix::rowSums(se@assays$Spatial$counts > 0))
+p3 = annotatedHist(gene_attr$nUMI, mads = 1) +
+  scale_x_log10() +
+  xlab("No. of counts") +
+  ylab("No. of genes") +
+  ggtitle("\n\n\nTotal counts per gene (log10 scale)") +
+  mytheme_grid(aspect.ratio = 0.6180)
+
+p4 =  se@meta.data %>%
+  ggplot(aes(nCount_Spatial, nFeature_Spatial, colour = Perc_of_mito_spot)) +
+  geom_point(stroke = .3) +
+  scale_colour_scico(palette = "roma", end = .9, direction = -1) +
+  guides(colour = guide_colorbar(title.position = "left", title = "% of mitochondrial genes", title.vjust = 1, barwidth = unit(8, "lines"), barheight = unit(.5, "lines"))) +
+  xlab("No. of counts per spot") +
+  ylab("No. of genes per spot") +
+  mytheme_grid(aspect.ratio = 0.6180, legend.position = "top")
+
+plot_grid(p1, p2, scale = 0.95)
+plot_grid(p3, p4, scale = 0.95)
+
+# Get raw count data 
+umi_data <- GetAssayData(object = se, layer = "counts", assay = "Spatial")
+gene_attr <- data.frame(mean = rowMeans(umi_data),
+                        detection_rate = rowMeans(umi_data > 0),
+                        var = apply(umi_data, 1, var), 
+                        row.names = rownames(umi_data)) %>%
+  mutate(log_mean = log10(mean), log_var = log10(var))
+
+p5 <- ggplot(gene_attr, aes(log_mean, log_var)) + 
+  geom_point(alpha = 0.3, size = .1) + 
+  geom_abline(intercept = 0, slope = 1, color = 'red', linewidth = .1) +
+  ggtitle("Mean-variance relationship") +
+  mytheme_grid(aspect.ratio = 0.6180)
+
+p6 <- ggplot(gene_attr, aes(log_mean, detection_rate)) + 
+  geom_point(alpha = 0.3,  size = .1) + 
+  ggtitle("Mean-detection-rate relationship") +
+  mytheme_grid(aspect.ratio = 0.6180)
+
+plot_grid(p5, p6, scale = 0.95)
+
+p7 = annotatedHist(se$Perc_of_mito_spot, mads = 1:3) +
+  xlab("% counts on mitochondrial genes") +
+  ylab("No. of spots") +
+  ggtitle("Percent of counts belonging to mitochondrial genes per spot") +
+  mytheme_grid(aspect.ratio = 0.6180)
+
+p8 = annotatedHist(se$Perc_of_ribosomal_spot, mads = 1:3) +
+  xlab("% counts on ribosomal genes") +
+  ylab("No. of spots") +
+  ggtitle("Percent of counts belonging to ribosomal genes per spot") +
+  mytheme_grid(aspect.ratio = 0.6180)
+
+plot_grid(p7, p8, scale = 0.95)
+```
+
+# Top genes with highest average expression
+
+```{r tops-ave, fig.width=8.5, fig.asp=1, fig.cap=figRef("tops-ave-ref", "Top 50 Genes with the highest average expression across all spots, along with their expression in each individual spots. The x-axis depicts the percentage of counts accounted for by the top 50 most highly expressed features across the dataset. Each row on the plot corresponds to a gene and is sorted by average expression (denoted by the point). The distribution of expression across all cells is shown as tick marks for each feature."), echo=T, eval=T}
+
+## Find the most highly expressed features in this dataset
+exprs_mat = se@assays$Spatial$counts
+# exprs_mat = exprs_mat[!grepl("^RPL|^RPS", rownames(exprs_mat)), ]
+ave_exprs = rowSums(exprs_mat)
+oo = order(ave_exprs, decreasing=TRUE)
+
+chosen = head(oo, 50)
+sub_mat = exprs_mat[chosen,,drop=FALSE]
+sub_ave = ave_exprs[chosen]
+
+
+## Compute expression values and reshape them for ggplot.
+total_exprs = sum(ave_exprs)
+top_pctage = 100 * sum(sub_ave) / total_exprs
+sub_mat = 100 * sweep(sub_mat, 2, colSums(exprs_mat), "/", check.margin=FALSE)
+
+ordered_names = factor(names(sub_ave), rev(names(sub_ave))) # rev() so that most highly expressed is last (i.e., highest y-axis).
+df_exprs_by_cell_long <- data.frame(
+  Cell=rep(seq_len(ncol(sub_mat)), each=nrow(sub_mat)),
+  Tag=rep(ordered_names, ncol(sub_mat)),
+  value=as.numeric(sub_mat) # column major collapse.
+)
+
+## Adding median expression values for each gene.
+df_to_plot <- data.frame(Feature=ordered_names)
+df_to_plot$pct_total <- 100 * sub_ave / total_exprs
+
+ggplot(df_exprs_by_cell_long, aes(y = Tag, x = value)) +
+  geom_point(alpha = 0.6, shape = 124) +
+  geom_point(data = df_to_plot, aes(x = pct_total, y = Feature), colour = "red", shape = 16) +
+  xlab("% of total counts") + ylab("Genes") +
+  mytheme_grid() +
+  theme(panel.grid.minor = element_blank(),
+        axis.text.x = element_text(colour = "gray35"),
+        axis.text.y = element_text(colour = "gray35"),
+        axis.title.x = element_text(colour = "gray35"),
+        axis.title.y = element_text(colour = "gray35"),
+        title = element_text(colour = "gray35"))
+```
+
+# Cell marker {.tabset}
+
+<span style="color:red">**Raw counts**</span> are shown.
+
+## Melanoma
+
+```{r Melanoma, fig.width=8.5, eval=T, dpi = 60}
+plot_markers <- function(genes){
+  plot_grid(plotlist =  lapply(ftrs, function(x){
+    feature_overlay(se, x, pt.size = base_pt_size/2, pt.stroke = 0.25, labels = ~ sprintf("%.1f", .x)) & 
+      theme(plot.margin = margin(1,1,1,1),
+            legend.justification = c(0,0.5),
+            legend.margin = margin(1,4,1,1),
+            legend.key.height = unit(1.5, "lines"))}), ncol = 3, nrow = 2, scale = 1.02)
+}
+
+ftrs = c("MLANA", "DCT", "PMEL", "TYRP1", "TYR", "SOX10")
+ftrs = ftrs[ftrs %in% rownames(se)]
+if (length(ftrs) > 0) {plot_markers(ftrs)} else {NULL}
+```
+
+## T-cells
+
+```{r T-cells, fig.width=8.5, eval=T, dpi = 60}
+ftrs = c("CD4", "CD8A", "CD8B", "CD3D", "CD3E", "CD2", "CD247", "TRAC")
+ftrs = ftrs[ftrs %in% rownames(se)]
+if (length(ftrs) > 0) {plot_markers(ftrs)} else {NULL}
+```
+
+## Naive T-cells
+
+```{r Naive-T-cells, fig.width=8.5, eval=T, dpi = 60}
+ftrs = c("CCR7", "LEF1", "SELL", "TCF7") # Naive T-cells
+ftrs = ftrs[ftrs %in% rownames(se)]
+if (length(ftrs) > 0) {plot_markers(ftrs)} else {NULL}
+```
+
+## Exhausted T-cells
+
+```{r Exhausted-T-cells, fig.width=8.5, eval=T, dpi = 60}
+ftrs = c("CTLA4", "HAVCR2", "LAG3", "PDCD1", "TIGIT") # Exhausted T-cells
+ftrs = ftrs[ftrs %in% rownames(se)]
+if (length(ftrs) > 0) {plot_markers(ftrs)} else {NULL}
+```
+
+## Activated T-cells
+
+```{r Activated-T-cells, fig.width=8.5, eval=T, dpi = 60}
+ftrs = c("CD28", "IL2", "CD69", "TNFRSF9", "CD27", "IFNG") # Activated T-cells
+ftrs = ftrs[ftrs %in% rownames(se)]
+if (length(ftrs) > 0) {plot_markers(ftrs)} else {NULL}
+```
+
+## Cytotoxic T-cells
+
+```{r Cytotoxic-T-cells, fig.width=8.5, eval=T, dpi = 60}
+ftrs = c("PRF1", "GZMB", "GZMA", "KLRK1", "NKG7", "GNLY") # Cytotoxic T-cells
+ftrs = ftrs[ftrs %in% rownames(se)]
+if (length(ftrs) > 0) {plot_markers(ftrs)} else {NULL}
+```
+
+## memory, activation and cell survival (T-cells)
+
+```{r Mem-act-surv-T-cells, fig.width=8.5, eval=T, dpi = 60}
+ftrs = c("IL7R", "TCF7", "REL", "FOXP1", "FOSL2", "STAT4") # memory, activation and cell survival (T-cells)
+ftrs = ftrs[ftrs %in% rownames(se)]
+if (length(ftrs) > 0) {plot_markers(ftrs)} else {NULL}
+```
+
+## NK cells
+
+```{r NK-cells, fig.width=8.5, eval=T, dpi = 60}
+ftrs = c("FCGR3A", "NCR1", "NCAM1") # NK cells
+ftrs = ftrs[ftrs %in% rownames(se)]
+if (length(ftrs) > 0) {plot_markers(ftrs)} else {NULL}
+```
+
+## B-cells
+
+```{r B-cells, fig.width=8.5, eval=T, dpi = 60}
+ftrs = c("CD19", "MS4A1") # B-cells
+ftrs = ftrs[ftrs %in% rownames(se)]
+if (length(ftrs) > 0) {plot_markers(ftrs)} else {NULL}
+```
+
+## Myeloid, Monocyte, Macrophage
+
+```{r Myeloid-Monocyte-Macrophage, fig.width=8.5, eval=T, dpi = 60}
+ftrs = c("CD33", "CD163", "ITGAM", "HLA-DRA", "CD14", "FCGR1A") # Myeloid, Monocyte, Macrophage
+ftrs = ftrs[ftrs %in% rownames(se)]
+if (length(ftrs) > 0) {plot_markers(ftrs)} else {NULL}
+```
+
+## DC
+
+```{r DC, fig.width=8.5, eval=T, dpi = 60}
+ftrs = c("IL3RA", "NRP1", "LILRA4","HLA-DRA", "ITGAX", "THBD") # DC
+ftrs = ftrs[ftrs %in% rownames(se)]
+if (length(ftrs) > 0) {plot_markers(ftrs)} else {NULL}
+```
+
+# Spatial autocorrelation
+
+Spatial autocorrelation test was used to find genes with clear spatial patterns. Top 25 genes are presented and top 9 are shown (SCT-transformed expression).
+
+```{r autcor-table, fig.cap=figRef("autcor-table-ref", ""), echo=F, results=T, eval=T}
+head(spatgenes[[1]], 25) %>%
+  kbl() %>%
+  kable_styling(full_width = F)
+```
+
+```{r autcor-overlay, fig.width=8.5, fig.asp=1.1, echo=T, eval=T, dpi = 80}
+# feature_overlay = function(.se = NULL, .t = NULL, .title = NULL) {
+#   FeatureOverlay(
+#     .se,
+#     features = .t,
+#     pt.size = 1,
+#     pt.alpha = 1,
+#     add.alpha = F,
+#     show.sb = F,
+#     min.cutoff = "q1",
+#     max.cutoff = "q99",
+#     pt.border = T) +
+#   coord_equal() +
+#   scale_fill_scico(palette = "romaO", end = 1, direction = -1) +
+#   guides(fill = guide_colorbar(title.position = "top", title.hjust = 0, barwidth = unit(.4, "lines"), 
+#                                title = "Exprs", barheight = unit(6, "lines"))) +
+#   theme(
+#     axis.title = element_blank(),
+#     axis.text = element_blank(),
+#     axis.ticks = element_blank()
+#   )
+# }
+
+plot_grid(plotlist = lapply(spatgenes[[1]]$gene[1:9], function(x){
+    feature_overlay(se, x, pt.size = base_pt_size/2, pt.stroke = 0.25, 
+                    labels = ~ sprintf("%.1f", .x), max_cutoff = 0.99) & 
+      theme(plot.margin = margin(1,1,1,1),
+            legend.justification = c(0,0.5),
+            legend.margin = margin(1,4,1,1),
+            legend.key.height = unit(1.5, "lines"))}), ncol = 3)
+```
+

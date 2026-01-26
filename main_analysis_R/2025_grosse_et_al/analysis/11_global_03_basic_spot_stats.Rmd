@@ -1,0 +1,128 @@
+---
+title: "Basic stats for the non-HD samples"
+output:
+  workflowr::wflow_html:
+    code_folding: hide
+    fig_caption: yes
+    number_sections: yes
+    pandoc_args: []
+    self_contained: yes
+    smart: yes
+    toc: yes
+    toc_depth: 5
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+Author: Florian Große (Last updated: `r Sys.Date()`)
+
+```{r libs-and-functions, echo = F, message = FALSE, warning=FALSE}
+library("Cairo")
+library("Seurat")
+library("yaml")
+library("rlang")
+library("tidyverse")
+library("semla")
+```
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE, cache=F}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  error = FALSE,
+  message = FALSE,
+  cache = FALSE,
+  warning = FALSE,
+  results = TRUE,
+  fig.align = 'center',
+  fig.show = 'hold',
+  autodep = TRUE,
+  dpi = 96,
+  dev = c('CairoPNG') # alternative: dev = c('png') type = 'cairo'
+)
+```
+
+```{r manifest-and-objects, echo=F}
+manifest = yaml.load_file("assets/manifest.yaml")
+all.samples = all.samples = unique(c(manifest$primary_melanoma_samples, setdiff(manifest$samples, manifest$rejected_samples), manifest$samples))
+
+ses = lapply(all.samples, function(s) {
+ sample_manifest = manifest[[s]]
+ work.dir = file.path(manifest$workdata_parent, sample_manifest$workdata)
+ se = readRDS(file.path(work.dir, "04_seurat.rds"))
+ DefaultAssay(se) = "Spatial"
+ return(se)
+})
+names(ses) = all.samples
+```
+
+# Basic stats for all samples after QC
+
+Spots per sample: 
+
+```{r nSpots, echo=F, eval=T}
+df =  as.data.frame(sapply(ses, function(se)length(Cells(se))))
+df$x2 = case_match(all.samples, manifest$highest_immune_response_melanoma_samples ~ "In paper", manifest$rejected_samples ~ "Rejected", .default = "Other")
+names(df) = c("Spots under Tissue", "Sample Status")
+print(df)
+print(paste("Total:", sum(df$`Spots under Tissue`), "spots, total in paper:", sum(df %>% filter(`Sample Status` == "In paper") %>% pull(`Spots under Tissue`))))
+```
+
+Unique UMIs (total counts) per sample:
+
+```{r nUMI, echo=F, eval=T}
+sumcounts = sapply(ses, function(se){
+  c1 = GetAssayData(se, assay = "Spatial", slot = "counts")
+  c2 = GetAssayData(se, assay = "MitoRibo", slot = "counts")
+  sum(c1) + sum(c2)
+})
+print(data.frame(UMIs = sumcounts))
+print(paste("Total:", sum(sumcounts), "UMIs, total in paper:", sum(sumcounts[manifest$highest_immune_response_melanoma_samples])))
+```
+
+Unique detected genes per sample:
+
+```{r nGenes, echo=F, eval=T}
+detectedgenes = lapply(ses, function(se){
+  c1 = rowSums(GetAssayData(se, assay = "Spatial", slot = "counts"))
+  c2 = rowSums(GetAssayData(se, assay = "MitoRibo", slot = "counts"))
+  names(c(c1[c1>0], c2[c2>0]))
+})
+
+print(data.frame(`Detected Genes` = sapply(detectedgenes, length)))
+print(paste("Distinct genes over all samples:", length(unique(do.call(c, detectedgenes))), "in total, in paper:", length(unique(do.call(c, detectedgenes[manifest$highest_immune_response_melanoma_samples])))))
+```
+
+Detected genes per spot: (aggregated, see QC selection pages for per-sample stats)
+
+```{r detectedGenes, echo=F, eval=T}
+gps = lapply(ses, function(se){
+  c1 = GetAssayData(se, assay = "Spatial", slot = "counts")
+  c2 = GetAssayData(se, assay = "MitoRibo", slot = "counts")
+  counts = rbind(c1, c2)
+  colSums(counts>0)
+})
+print("All:")
+print(summary(do.call(c, gps)))
+print("In paper:")
+print(summary(do.call(c, gps[manifest$highest_immune_response_melanoma_samples])))
+
+```
+
+Valid UMIs (counts) per spot: (aggregated, see QC selection pages for per-sample stats)
+
+```{r detectedUMIs, echo=F, eval=T}
+cps = lapply(ses, function(se){
+  c1 = GetAssayData(se, assay = "Spatial", slot = "counts")
+  c2 = GetAssayData(se, assay = "MitoRibo", slot = "counts")
+  counts = rbind(c1, c2)
+  colSums(counts)
+})
+print("All:")
+print(summary(do.call(c, cps)))
+print("In paper:")
+print(summary(do.call(c, cps[manifest$highest_immune_response_melanoma_samples])))
+```
+

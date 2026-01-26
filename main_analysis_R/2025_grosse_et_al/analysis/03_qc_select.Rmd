@@ -1,0 +1,276 @@
+---
+title: "Quality control spot selection"
+output:
+  workflowr::wflow_html:
+    code_folding: hide
+    fig_caption: yes
+    number_sections: yes
+    pandoc_args: []
+    self_contained: yes
+    smart: yes
+    toc: yes
+    toc_depth: 5
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r libs-and-functions, echo = F, message = FALSE, warning=FALSE}
+library("Cairo")
+library("tidyverse")
+library("Seurat")
+library("yaml")
+library("ggplot2")
+library("cowplot")
+library("clustree")
+library("naturalsort")
+library("reshape2")
+library("patchwork")
+library("kableExtra")
+library("scico")
+library("semla")
+
+
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# Functions
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+source("code/helper/Rmarkdown-style.R")
+theme_set(mytheme(base_size = 7))
+```
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE, cache=F}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  error = FALSE,
+  message = FALSE,
+  cache = FALSE,
+  warning = FALSE,
+  results = TRUE,
+  fig.align = 'center',
+  fig.show = 'hold',
+  autodep = TRUE,
+  dpi = 96,
+  dev = c('CairoPNG') # alternative: dev = c('png') type = 'cairo'
+)
+```
+
+```{r manifest-and-objects, echo=F}
+manifest = yaml.load_file("./assets/manifest.yaml")
+current_sample = scan(file.path(manifest$workdata_parent, ".tmp/active_sample"), what = "character", quiet = T)
+sample_manifest = manifest[[current_sample]]
+
+default_plot_focus = sample_manifest$crop_area
+source("code/helper/FG_plotting_functions.R")
+base_pt_size = estim_point_size(sample_manifest)
+
+work.dir = file.path(manifest$workdata_parent, sample_manifest$workdata)
+merge_and_integration_dir = file.path(manifest$workdata_parent, manifest$merge_and_integration_dir)
+se = readRDS(file.path(work.dir, "02_seurat.rds"))
+
+DefaultAssay(se) = "Spatial"
+
+qc_settings = manifest$QC_cutoffs 
+
+se_genes_cutoff <- manifest$QC_cutoffs$genes
+se_counts_cutoff <- manifest$QC_cutoffs$counts
+se_mito_cutoff <- manifest$QC_cutoffs$mito
+
+# Add selection criteria to the whole dataset
+se[["genes_exceed_per_spot_cutoff"]] <- se$nFeature_Spatial >= se_genes_cutoff
+se[["counts_exceed_per_spot_cutoff"]] <- se$nCount_Spatial >= se_counts_cutoff
+se[["perc_of_mito_genes_below_cutoff"]] <- se$Perc_of_mito_spot <= se_mito_cutoff
+```
+
+```{r sample-title, results='asis', echo = FALSE}
+sample_full_name = sample_manifest$full_name
+cat("Sample: ", sample_full_name, "\n")
+```
+
+Author: Florian Große (Last updated: `r Sys.Date()`)
+
+# Overlay features on HE image (repeated from last page)
+
+The following is assumed for individual single cells: cells  with a low count depth,
+few detected genes, and a high fraction of mitochondrial counts are indicative of
+cells whose cytoplasmic mRNA has leaked out through a broken membrane, and thus,
+only mRNA located in the mitochondria is still conserved.
+
+```{r featureOverlay-inside, fig.width=8.5, fig.asp=1., fig.show = 'hold', fig.cap=figRef("featureOverlay-inside-ref", ""), echo=T, eval=T}
+
+topbar = theme(
+      legend.position = "top",
+      legend.direction = "horizontal",
+      legend.key.width = unit(2., "lines"),
+      legend.key.height = unit(0.6, "lines"),
+      legend.title = element_blank()
+    )
+
+plot_grid(
+  feature_overlay(se, "nFeature_Spatial", "Detected genes per spot", limits = c(0, NA), 
+                  pt.size = base_pt_size) & topbar,
+  feature_overlay(se, "nCount_Spatial", "Detected UMIs per spot", limits = c(0, NA),
+                  pt.size = base_pt_size) & topbar,
+  feature_overlay(se, "Perc_of_mito_spot", "% of mitochondrial genes", limits = c(0, NA),
+                  pt.size = base_pt_size) & topbar,
+  feature_overlay(se, "Perc_of_ribosomal_spot", "% of ribosomal genes", limits = c(0, NA),
+                  pt.size = base_pt_size) & topbar,
+  ncol = 2
+)
+```
+
+# Global QC over all Samples
+
+In order to assess the distribution of quality metrics across samples and potentially identify spot clusters which may show particularly bad QC metric for biological reasons, all samples were pooled and assessed for batch effects. Batch correction was subsequently performed and the integrated spot data were clustered and per-cluster quality was assessed. 
+
+```{r global-quality-control-objects, echo=F}
+# manifest etc. is already loaded
+merged_ses = readRDS(file.path(merge_and_integration_dir, "03_naively_merged_samples_se.rds"))
+integrated_ses = readRDS(file.path(merge_and_integration_dir, "03_seurat_integrated_samples_se.rds"))
+
+plotkeys = c("Sample", sapply(manifest$global_qc_resolutions,
+                              function(r){paste0("Spatial_snn_res.", r)}))
+```
+
+```{r global-plots, fig.width=8.5, fig.asp=1., fig.cap=figRef("global-plots-ref", "MixingMetric represents the median rank of the first 5 neighbors from different groups among all neighbors for each cell. The ploted values are the maximum neighborhood which was considered (500) minus the calculated mixing score. Values around 0 indicate that a cell is very far away from cells from most other groups, whereas high values indicate a good mixing between the considered groups."), echo=T, eval=T}
+# merged samples
+p1 = UMAPPlot(merged_ses, group.by = "Sample")+
+  theme(axis.title = element_blank(), legend.position = "none", plot.title = element_blank())
+# higher is better, so this is badly mixed 
+p2 = VlnPlot(merged_ses, "MixingMetric", pt.size = F, group.by = "Sample")+
+  lims(y = c(0,500))+
+  theme(axis.title = element_blank())
+
+# integrated samples
+p3 = DimPlot(integrated_ses, group.by = "Sample", reduction = "umap.harmony")+
+  theme(axis.title = element_blank(), legend.position = "none", plot.title = element_blank())
+p4 = VlnPlot(integrated_ses, "MixingMetric", pt.size = F, group.by = "Sample")+
+  lims(y = c(0,500))+
+  theme(axis.title = element_blank())
+
+plot_grid(p1, p2, p3, p4, align = "hv", ncol = 2, byrow = F, labels = c("No Batch Correction", "With Batch Correction", "", ""))
+```
+
+```{r global-violin-plots-genes, fig.width=8.5, fig.asp=1., fig.cap=figRef("global-violin-plots-genes-ref", "Distribution of genes per spot metric for different partitions of batch-corrected integrated spot data. Cluster labels are not conserved between different clustering resolutions."), echo=T, eval=F, dpi = 60}
+
+plot_grid(plotlist = lapply(plotkeys, function(k) {
+  VlnPlot(integrated_ses, group.by = k, log = T, features = "nFeature_Spatial", 
+          pt.size = F) + 
+    labs(title = k) + 
+    theme(axis.title = element_blank(), legend.position = "none")
+}), ncol = 2)
+```
+
+```{r global-violin-plots-counts, fig.width=8.5, fig.asp=1., fig.cap=figRef("global-violin-plots-counts-ref", "Distribution of counts per spot metric for different partitions of batch-corrected integrated spot data. Cluster labels are not conserved between different clustering resolutions."), echo=T, eval=T, dpi = 60}
+plot_grid(plotlist = lapply(plotkeys, function(k) {
+  VlnPlot(integrated_ses, group.by = k, log = T, features = "nCount_Spatial", 
+          pt.size = F) + 
+    labs(title = k) + 
+    theme(axis.title = element_blank(), legend.position = "none")
+}), ncol = 2)
+```
+
+```{r global-violin-plots-mito, fig.width=8.5, fig.asp=1., fig.cap=figRef("global-violin-plots-mito-ref", "Distribution of percent mitochondrial genes metric for different partitions of batch-corrected integrated spot data. Cluster labels are not conserved between different clustering resolutions."), echo=T, eval=T, dpi = 60}
+plot_grid(plotlist = lapply(plotkeys, function(k) {
+  VlnPlot(integrated_ses, group.by = k, log = T, features = "Perc_of_mito_spot", 
+          pt.size = F) + 
+    labs(title = k) + 
+    theme(axis.title = element_blank(), legend.position = "none")
+}), ncol = 2)
+```
+
+Although the average spot quality across clusters is somewhat variable, no single cluster of spots aggregates only low-quality spots. Because the distributions of quality metrics are sufficiently broad, the chance to introduce a cell-type composition bias by quality control was regarded as rather low. 
+
+```{r global-stats, fig.width=8.5, fig.asp=.8, fig.cap=figRef("global-stats-ref", "Quality control metrics aggregated over all spots (under tissue) from all samples."), echo=T, eval=T, dpi = 80}
+
+# Genes per spot
+p1 = annotatedHist(integrated_ses$nFeature_Spatial, mads = 1,
+                      show_quantiles = T, which_quantiles = c(0.03,  0.9, 0.97)) +
+  xlab("No. of genes") +
+  ylab("No. of spots") +
+  ggtitle("No. of genes per spot") +
+  mytheme_grid(aspect.ratio = 0.6180)
+
+# Counts per spot
+p2 = annotatedHist(integrated_ses$nCount_Spatial, mads = 1,
+                   show_quantiles = T, which_quantiles = c(0.03,  0.9, 0.97)) +
+  xlab("No. of counts") +
+  ylab("No. of spots") +
+  ggtitle("Total counts per spot") +
+  mytheme_grid(aspect.ratio = 0.6180)
+
+# Percent mito
+p3 = annotatedHist(integrated_ses$Perc_of_mito_spot, mads = 1, 
+                   show_quantiles = T, which_quantiles = c(0.03,  0.9, 0.97)) +
+  xlab("% counts on mitochondrial genes") +
+  ylab("No. of spots") +
+  ggtitle("Percent of counts belonging to mitochondrial genes per spot") +
+  mytheme_grid(aspect.ratio = 0.6180)
+
+# Percent ribo
+p4 = annotatedHist(integrated_ses$Perc_of_ribosomal_spot, mads = 1, 
+                   show_quantiles = T, which_quantiles = c(0.03,  0.9, 0.97)) +
+  xlab("% counts on ribosomal genes") +
+  ylab("No. of spots") +
+  ggtitle("Percent of counts belonging to ribosomal genes per spot") +
+  mytheme_grid(aspect.ratio = 0.6180)
+
+plot_grid(p1, p2, p3, p4, ncol = 2, scale = 0.95)
+```
+
+Based on the aggregated statistics, the following quality control cutoffs have been determined:
+
+Spots were discarded if they contained fewer than `r qc_settings$genes` genes, fewer than `r qc_settings$counts` total counts or if the percentage of mitochondrial genes among the detected genes in a spot exceeded `r qc_settings$mito` percent.
+
+# Spot Selection 
+
+After applying those cutoffs, the current sample looks like this:
+
+```{r selection-plot, fig.width=8.5, fig.asp=1., fig.show = 'hold', eval=T, echo=T}
+p1 = feature_overlay_discrete(se, features = "genes_exceed_per_spot_cutoff",
+                              titles = "Spots exceeding the\ngenes per spot threshold for QC",
+                              pt.size = base_pt_size, pt.alpha = 0.5, show.sb = F) & 
+  scale_fill_manual(limits = c(FALSE, TRUE), 
+                    values = c("red", "black"), 
+                    name = paste("Detected genes >", qc_settings$genes)) &
+  theme(legend.position = "bottom")
+
+p2 = feature_overlay_discrete(se, features = "counts_exceed_per_spot_cutoff",
+                              titles = "Spots exceeding the\ncounts per spot threshold for QC",
+                              pt.size = base_pt_size, pt.alpha = 0.5, show.sb = F) & 
+  scale_fill_manual(limits = c(FALSE, TRUE), 
+                    values = c("red", "black"), 
+                    name = paste("UMI counts >", qc_settings$genes)) &
+  theme(legend.position = "bottom")
+
+p3 = feature_overlay_discrete(se, features = "perc_of_mito_genes_below_cutoff",
+                              titles = "Spots falling below the QC threshold for\npercentage of counts on mitochondrial genes",
+                              pt.size = base_pt_size, pt.alpha = 0.5, show.sb = F) & 
+  scale_fill_manual(limits = c(FALSE, TRUE), 
+                    values = c("red", "black"), 
+                    name = paste("Percent of mitochondrial genes <", qc_settings$genes)) &
+  theme(legend.position = "bottom")
+
+plotspots = WhichCells(se, expression = genes_exceed_per_spot_cutoff & counts_exceed_per_spot_cutoff & perc_of_mito_genes_below_cutoff)
+
+p4 = feature_overlay_discrete(SubsetSTData(se, spots = plotspots), 
+                              features = "perc_of_mito_genes_below_cutoff",
+                              titles = "Spots passing quality control",
+                              pt.size = base_pt_size, pt.alpha = 0.5, show.sb = F) & 
+  scale_fill_manual(limits = c(TRUE), 
+                    values = c("green"), 
+                    name = paste("Percent of mitochondrial genes <", qc_settings$genes)) &
+  theme(legend.position = "none")
+
+plot_grid(p1, p2, p3, p4, ncol = 2, align = "hv")
+```
+
+```{r reduction, results='asis', echo = FALSE}
+spots_pre_selection = length(Cells(se))
+spots_post_selection = length(plotspots)
+cat("This means that ", spots_pre_selection - spots_post_selection, " spot", 
+    ifelse(test = (spots_pre_selection - spots_post_selection)==1, "", "s"), " (", 
+    (spots_pre_selection - spots_post_selection)/spots_pre_selection*100, "% of all spots)",
+    " have been removed due to quality problems.", sep = "")
+```

@@ -1,0 +1,1774 @@
+---
+title: "Completed figure panels (High-res)"
+output:
+  workflowr::wflow_html:
+    code_folding: hide
+    fig_caption: yes
+    number_sections: yes
+    pandoc_args: []
+    self_contained: yes
+    smart: yes
+    toc: yes
+    toc_depth: 5
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE, cache=F}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  error = FALSE,
+  message = FALSE,
+  cache = FALSE,
+  warning = FALSE,
+  results = TRUE,
+  fig.align = 'center',
+  fig.show = 'hold',
+  autodep = TRUE,
+  dpi = 450, 
+  fig.retina = 1,
+  size = 6.,
+  dev = c('png')
+)
+```
+
+This should contain all figure panels pieced together as they appear in the submission, such that font sizes and such are approximately constant. (At least all parts that can be programmatically generated)
+
+```{r libs-and-functions, echo = F, message = FALSE, warning=FALSE}
+library("Cairo")
+library("tidyverse")
+library("Seurat")
+library("yaml")
+library("ggplot2")
+library("cowplot")
+library("clustree")
+library("naturalsort")
+library("reshape2")
+library("patchwork")
+library("ggthemes")
+library("ggnewscale")
+library("kableExtra")
+library("scico")
+library("semla")
+library("rlang")
+library("scales")
+library("ggrepel")
+library("mixtools")
+library("gridExtra")
+library("circlize")
+library("magick")
+library("dplyr")
+
+library("survival")
+library("survminer")
+library("OmnipathR")
+library("car")
+library("recount")
+library("GenomicRanges")
+library("SummarizedExperiment")
+library("HDF5Array")
+
+
+# bioc
+library("SummarizedExperiment")
+library("clusterProfiler")
+library("NICHES")
+
+# conflicts
+library("conflicted")
+conflicts_prefer(dplyr::select,
+                 base::setdiff,
+                 base::union,
+                 dplyr::filter,
+                 dplyr::desc,
+                 base::intersect,
+                 cowplot::align_plots)
+
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# Functions
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+source("code/helper/Rmarkdown-style.R")
+theme_set(mytheme(base_size = 5))
+
+source("code/helper/FG_helper_NICHES.R")
+source("code/helper/aggregated_LRI_helper.R")
+
+standardize = function(z) {
+  rowmean = apply(z, 1, mean, na.rm=TRUE)
+  rowsd = apply(z, 1, sd, na.rm=TRUE)
+  rv = sweep(z, 1, rowmean,"-")
+  rv = sweep(rv, 1, rowsd, "/")
+  return(rv)
+}
+
+# emulated ggplot2 default colors as explained here: https://stackoverflow.com/a/8197703
+gg_color_hue <- function(n) {
+  hues = seq(15, 375, length = n + 1)
+  hcl(h = hues, l = 65, c = 100)[1:n]
+}
+
+compute_tumor_bg_dens <- function(modelobj, valrange){
+  model = modelobj$mixture.model
+  t <- seq(min(valrange), max(valrange), len=300)
+  # which component is the tumor density
+  malmask = model$mu == max(model$mu)
+  # all other are summed to a compound bg density
+  bg_dens = dnormmixt(t, model$lambda[!malmask], model$mu[!malmask], model$sigma[!malmask])
+  tumor_dens = dnormmixt(t, model$lambda[malmask], model$mu[malmask], model$sigma[malmask])
+  return(data.frame(x = t, bg_dens = bg_dens, tumor_dens = tumor_dens))
+}
+
+# apply image magick functions to the images stored by semla.
+# FUN needs to take a magick image and return a magick image of the same shape
+# use e.g. magick::image_modulate(..., brightness = 120) for brightening or so
+# this is just my internal shorthand, does not check for proper inputs
+apply_magick_image_functions = function(se, FUN, image_slot = "transformed"){
+  staff = se@tools$Staffli
+  staff@rasterlists[[image_slot]] = lapply(staff@rasterlists[[image_slot]], function(rinp){
+    im = magick::image_read(rinp)
+    im_tr = FUN(im)
+    return(grDevices::as.raster(im_tr))
+  })
+  se@tools$Staffli = staff
+  return(se)
+}
+
+# load manifest
+manifest = yaml.load_file("./assets/manifest.yaml")
+figlab_hjust=1.
+figlab_size=7
+```
+
+Author: Florian Große (Last updated: `r Sys.Date()`)
+
+# Figure 2
+
+```{r fig2-PM1-basics-prep, echo=F, eval=T}
+# load PM1
+current_sample = "PM1"
+sample_manifest = manifest[[current_sample]]
+default_plot_focus = sample_manifest$crop_area
+
+source("code/helper/FG_plotting_functions.R")
+
+p2scalebar = semla::scalebar(x = 1000, breaks = 3, highlight_breaks = c(1,3), breakheight = 2., 
+                      title_position = "top", text_height = 25, linewidth = 0.2, padding.y = grid::unit(0, "mm"))
+base_pt_size = estim_point_size(sample_manifest)*0.335
+work.dir = file.path(manifest$workdata_parent, sample_manifest$workdata)
+se.full = readRDS(file.path(work.dir, "01_seurat_full.rds"))
+se.full = apply_magick_image_functions(se.full, function(x)image_average(c(image_contrast(x, sharpen = 1), image_normalize(x))))
+obj1 = readRDS(file.path(work.dir, "09_seurat.rds"))
+se = obj1$se
+se = apply_magick_image_functions(se, function(x)image_average(c(image_contrast(x, sharpen = 1), image_normalize(x))))
+obj.mrkrs.ora = readRDS(file.path(work.dir, "07_cluster_markers.rds"))
+se$Cluster = se[[obj.mrkrs.ora$cl.res]]
+Idents(se) = "Cluster"
+cl.col = gg_color_hue(length(levels(se$Cluster)))
+names(cl.col) = levels(se$Cluster)
+```
+
+```{r fig2-PM1-A, fig.width=2, fig.height=1.55, fig.show='hold', echo=F, eval=T}
+# Histo anno overlay
+p2A = feature_overlay(
+    se.full,
+    crop_area = default_plot_focus,
+    pt.size = base_pt_size*1.5,
+    features = "nFeature_Spatial",
+    pt_alpha = 0, 
+    add_scalebar = T,
+    scalebar_position = c(0.05, 0.9),
+    scalebar_height = 0.15,
+    scalebar_gg = p2scalebar
+) &
+  ggtitle(NULL, subtitle = NULL) &
+  theme(
+    legend.position = "none",
+    plot.margin = margin(1,1,1,1, "pt"),
+    axis.title = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank()
+  )
+# remove scalebar border
+p2A[[1]][[2]] = p2A[[1]][[2]] + theme(panel.border = element_blank())
+p2A
+```
+
+```{r fig2-PM1-B, fig.width=2, fig.height=1.55, fig.show='hold', echo=F, eval=T}
+# sclusters on histo
+p2B = feature_overlay_discrete(
+  se, 
+  features = "seurat_clusters",
+  crop_area = default_plot_focus,
+  pt.size = base_pt_size*1.5,
+  pt.stroke = 0.1,
+  add_scalebar = T,
+  scalebar_position = c(0.05, 0.9),
+  scalebar_height = 0.15,
+  scalebar_gg = p2scalebar,
+  colors = cl.col
+  ) &
+  theme(
+    legend.text = element_text(size = unit(7, "pt")),
+    legend.title = element_text(size = unit(6, "pt")),
+    legend.key.height = unit(12, "pt"),
+    legend.box.spacing = unit(4, "pt"),
+    plot.margin = margin(1,1,1,1, "pt"),
+    axis.title = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    legend.position = "right"
+  ) &
+  guides(fill = guide_legend(title = "Cluster", ncol = 1, override.aes = list(size=2.5))) & 
+  ggtitle(NULL, subtitle = NULL)
+# remove scalebar border
+p2B[[1]][[2]] = p2B[[1]][[2]] + theme(panel.border = element_blank())
+p2B[[1]][[3]] = p2B[[1]][[3]] + theme(panel.border = element_blank()) # for whatever reason, with the current semla version this exists twice
+p2B
+```
+
+```{r fig2-PM1-basics-mid-prep, echo=F, eval=T}
+# prepare score plots for middle row
+plotmax_T = max(quantile(unlist(se[["T.cells_logcounts"]]), probs = 0.995), 0.4)
+plotmax_NK = max(quantile(unlist(se[["NK.cells_logcounts"]]), probs = 0.995), 0.4)
+plotmax_Mel = max(quantile(unlist(se[["melanocytes.malignant.cells_logcounts"]]), probs = 0.995), 0.4)
+
+p2_scoreplot <- function(se, scorename, title = "", limits, 
+                        scalename, crop_area, pt.size, pt.stroke = 0.1){
+  pmain = feature_overlay( se, scorename, titles = title, pt.stroke = pt.stroke,
+                           limits = limits, crop_area = crop_area, pt.size = pt.size,
+                           add_scalebar = T, scalebar_position = c(0.05, 0.85), 
+                           scalebar_height = 0.15, scalebar_gg = p2scalebar,
+                           oob = scales::squish, scalename = scalename) & 
+    theme( legend.key.width = unit(0.25, "lines"),
+           legend.key.height  = unit(0.5, "lines"),
+           plot.margin = margin(0,0,0,0, "pt"), 
+           legend.box.spacing = unit(2, "pt"),
+           legend.box.margin = margin(0,0,0,0, "pt"), 
+           legend.margin = margin(2,1,2,0, "pt"), 
+           plot.title = element_text(size = unit(6, "pt"), 
+                                     margin = margin(1,1,1,1,"pt"), vjust = 1),
+           legend.text = element_text(size = unit(5, "pt")),
+           legend.title = element_text(size = unit(5, "pt"), 
+                                       margin = margin(1,1,2,1, unit = "pt")))
+  pmain[[1]][[2]] = pmain[[1]][[2]] + theme(panel.border = element_blank())
+  pmain[[1]][[3]] = pmain[[1]][[3]] + theme(panel.border = element_blank())
+  return(pmain)
+}
+
+tscore_range = 1.1*range(se$T.cells_logcounts)
+malscore_range = pmax(1.1*range(se$melanocytes.malignant.cells_logcounts), c(-0.55, 0.5)) # not lower than -0.5 plus padding
+deconv_range_max = max(c(se$`CARD_decon_mean_T/NK_cells`, se$CARD_decon_mean_Melanocytic_cells))+0.01
+tplots_dat = tibble(tnk_decon = se$`CARD_decon_mean_T/NK_cells`, 
+              t_score = se$T.cells_logcounts, 
+              act = se$T.positive)
+nkplots_dat = tibble(tnk_decon = se$`CARD_decon_mean_T/NK_cells`, 
+              nk_score = se$NK.cells_logcounts, 
+              act = se$NK.positive)
+malplots_dat = tibble(mal_decon = se$CARD_decon_mean_Melanocytic_cells, 
+              mal_score = se$melanocytes.malignant.cells_logcounts, 
+              act = se$TUMOR.positive)
+malmodel_bg_dens = compute_tumor_bg_dens(Misc(se, "mal.model"), malscore_range)
+
+p2CDs = align_plots(
+  p2_scoreplot(se, "CARD_decon_mean_Melanocytic_cells", limits = c(0., NA), 
+               crop_area = default_plot_focus, pt.size = base_pt_size,
+               scalename = "Cell Type\nProportion", "Melanoma cells deconvolution"),
+  p2_scoreplot(se, "CARD_decon_mean_T/NK_cells", limits = c(0., NA), 
+               crop_area = default_plot_focus, pt.size = base_pt_size,
+               scalename = "Cell Type\nProportion", title = "T/NK deconvolution"),
+  p2_scoreplot(se, "melanocytes.malignant.cells_logcounts", limits = c(0., plotmax_Mel), 
+               crop_area = default_plot_focus, pt.size = base_pt_size,
+               scalename = "Module\nScore", title = "Melanoma cells score"),
+  p2_scoreplot(se, "T.cells_logcounts", limits = c(0., plotmax_T), 
+               crop_area = default_plot_focus, pt.size = base_pt_size,
+               scalename = "Module\nScore", title = "T cells score"),
+  p2_scoreplot(se, "NK.cells_logcounts", limits = c(0., plotmax_T), 
+               crop_area = default_plot_focus, pt.size = base_pt_size,
+               scalename = "Module\nScore", title = "NK cells score"))
+
+histo_mal_score = ggplot(malplots_dat, aes(mal_score)) + 
+    geom_histogram(mapping = aes(y = after_stat(density)), bins = 70, 
+                   fill = "white", colour = "grey30", linewidth = 0.1) + 
+    geom_vline(xintercept = Misc(se, "mal.model")$mixture.model.cutoff, 
+               colour = "black", linewidth = 0.5) +
+    geom_line(data = malmodel_bg_dens, mapping = aes(x,bg_dens), 
+              color = "#708070", linewidth = 0.6) + 
+    geom_line(data = malmodel_bg_dens, mapping = aes(x,tumor_dens), 
+              color = "#AF4030", linewidth = 0.6) + 
+    mytheme_grid(base_size = 5) + 
+    theme(axis.title = element_text(size = unit(7, "pt"), margin = margin(2,2,2,2,"pt")),
+          axis.text = element_text(size = unit(6, "pt"))) +
+    coord_cartesian(xlim = malscore_range, 
+                    expand = F) +
+    xlab("Melanoma module score") + 
+    ylab("Density")
+
+histo_t_score = ggplot(tplots_dat, aes(t_score)) + 
+    geom_histogram(mapping = aes(y = after_stat(density)), bins = 70, 
+                   fill = "white", colour = "grey30", linewidth = 0.1) + 
+    geom_vline(xintercept = Misc(se, "t.model")$fdr.corrected.background.cutoff, 
+               colour = "black", linewidth = 0.5) +
+    geom_line(data = tibble(x = seq(Misc(se, "t.model")$background.distr.model$location -
+                                      8*Misc(se, "t.model")$background.distr.model$scale,
+                                    Misc(se, "t.model")$background.distr.model$location +
+                                      8*Misc(se, "t.model")$background.distr.model$scale, 
+                                    len = 150),
+                            dens = dnorm(
+                              x=seq(Misc(se, "t.model")$background.distr.model$location -
+                                      8*Misc(se, "t.model")$background.distr.model$scale,
+                                    Misc(se, "t.model")$background.distr.model$location +
+                                      8*Misc(se, "t.model")$background.distr.model$scale, 
+                                    len = 150),
+                              mean = Misc(se, "t.model")$background.distr.model$location,
+                              sd = Misc(se, "t.model")$background.distr.model$scale)),
+              aes(x,dens), color = "#40AF40", linewidth = 0.6) + # draw background distribution
+    mytheme_grid(base_size = 5) + 
+    theme(axis.title = element_text(size = unit(7, "pt"), margin = margin(2,2,2,2,"pt")),
+          axis.text = element_text(size = unit(6, "pt"))) +
+    coord_cartesian(xlim = tscore_range, expand = F) +
+    xlab("T cell module score") + 
+    ylab(" Density ")
+
+histo_nk_score = ggplot(nkplots_dat, aes(nk_score)) + 
+    geom_histogram(mapping = aes(y = after_stat(density)), bins = 70, 
+                   fill = "white", colour = "grey30", linewidth = 0.1) + 
+    geom_vline(xintercept = Misc(se, "nk.model")$fdr.corrected.background.cutoff, 
+               colour = "black", linewidth = 0.5) +
+    geom_line(data = tibble(x = seq(Misc(se, "nk.model")$background.distr.model$location -
+                                      8*Misc(se, "nk.model")$background.distr.model$scale,
+                                    Misc(se, "nk.model")$background.distr.model$location +
+                                      8*Misc(se, "nk.model")$background.distr.model$scale, 
+                                    len = 150),
+                            dens = dnorm(
+                              x=seq(Misc(se, "nk.model")$background.distr.model$location -
+                                      8*Misc(se, "nk.model")$background.distr.model$scale,
+                                    Misc(se, "nk.model")$background.distr.model$location +
+                                      8*Misc(se, "nk.model")$background.distr.model$scale, 
+                                    len = 150),
+                              mean = Misc(se, "nk.model")$background.distr.model$location,
+                              sd = Misc(se, "nk.model")$background.distr.model$scale)),
+              aes(x,dens), color = "#40AF40", linewidth = 0.6) + # draw background distribution
+    mytheme_grid(base_size = 5) + 
+    theme(axis.title = element_text(size = unit(7, "pt"), margin = margin(2,2,2,2,"pt")),
+          axis.text = element_text(size = unit(6, "pt"))) +
+    coord_cartesian(xlim = tscore_range, expand = F) +
+    xlab("NK cell module score") + 
+    ylab(" Density ")
+
+malmodel_scatter = ggplot(malplots_dat, aes(mal_score, mal_decon, color = act)) + 
+    geom_hline(yintercept = 0.1, colour = "black", linewidth = 0.5) +
+    geom_vline(xintercept = Misc(se, "mal.model")$mixture.model.cutoff, colour = "black", linewidth = 0.5) +
+    geom_point(size = 0.2) + 
+    scale_color_manual(values = c("False" = "grey", "True" = "#AF4030"), guide = "none") +
+    mytheme_grid(base_size = 5) + 
+    theme(axis.title = element_text(size = unit(7, "pt"), margin = margin(2,2,2,2,"pt")),
+          axis.text = element_text(size = unit(6, "pt"))) +
+    coord_cartesian(xlim = malscore_range, 
+                    ylim = c(0., deconv_range_max), 
+                    expand = F) +
+    ylab("Deconv. melanoma content") +
+    xlab("Melanoma module score")
+
+tmodel_scatter = ggplot(tplots_dat, aes(t_score, tnk_decon, color = act)) + 
+    geom_hline(yintercept = 0.1, colour = "black", linewidth = 0.5) +
+    geom_vline(xintercept = Misc(se, "t.model")$fdr.corrected.background.cutoff, 
+               colour = "black", linewidth = 0.5) +
+    geom_point(size = 0.2) + 
+    scale_color_manual(values = c("False" = "grey", "True" = "#40AF40"), guide = "none") +
+    mytheme_grid(base_size = 5) + 
+    theme(axis.title = element_text(size = unit(7, "pt"), margin = margin(2,2,2,2,"pt")),
+          axis.text = element_text(size = unit(6, "pt"))) +
+    coord_cartesian(xlim = tscore_range, ylim = c(0., deconv_range_max), expand = F) +
+    ylab("Deconv. T/NK content") +
+    xlab("T cell module score")
+
+nkmodel_scatter = ggplot(tplots_dat, aes(t_score, tnk_decon, color = act)) + 
+    geom_hline(yintercept = 0.1, colour = "black", linewidth = 0.5) +
+    geom_vline(xintercept = Misc(se, "nk.model")$fdr.corrected.background.cutoff, 
+               colour = "black", linewidth = 0.5) +
+    geom_point(size = 0.2) + 
+    scale_color_manual(values = c("False" = "grey", "True" = "#40AF40"), guide = "none") +
+    mytheme_grid(base_size = 5) + 
+    theme(axis.title = element_text(size = unit(7, "pt"), margin = margin(2,2,2,2,"pt")),
+          axis.text = element_text(size = unit(6, "pt"))) +
+    coord_cartesian(xlim = tscore_range, ylim = c(0., deconv_range_max), expand = F) +
+    ylab("Deconv. T/NK content") +
+    xlab("NK cell module score")
+
+# nkmodel_scatter = ggplot(nkplots_dat, aes(nk_score, tnk_decon, color = act)) + 
+#     geom_hline(yintercept = 0.1, colour = "black", linewidth = 1) +
+#     geom_vline(xintercept = Misc(se, "nk.model")$fdr.corrected.background.cutoff, 
+#                colour = "black", linewidth = 0.5) +
+#     geom_point() + 
+#     scale_color_manual(values = c("False" = "grey", "True" = "#40AF40"), guide = "none") +
+#     mytheme_grid(base_size = 5) + 
+#     theme(axis.title = element_text(size = unit(7, "pt"), margin = margin(2,2,2,2,"pt")),
+#           axis.text = element_text(size = unit(6, "pt"))) +
+#     coord_cartesian(xlim = 1.1*range(se$NK.cells_logcounts), 
+#                     ylim = c(0., deconv_range_max), 
+#                     expand = F) +
+#     ylab(" Deconv. T/NK content ") +
+#     xlab("NK cell module score") +
+#     scale_y_continuous(sec.axis = dup_axis(labels = waiver())) +
+#     theme(axis.title.y.right = element_blank(),
+#           axis.ticks.y.left = element_blank(), 
+#           axis.text.y.left = element_text(colour = "white", size = rel(0.5)))
+
+p2EFs = align_patches(histo_mal_score, histo_t_score, histo_nk_score,
+                      malmodel_scatter, tmodel_scatter, nkmodel_scatter)
+```
+
+```{r fig2-PM1-C, fig.width=1.41, fig.height=1.32, fig.show='hold', echo=F, eval=T}
+plot(p2CDs[[1]])
+plot(p2CDs[[2]])
+```
+
+```{r fig2-PM1-D, fig.width=1.41, fig.height=1.32, fig.show='hold', echo=F, eval=T}
+plot(p2CDs[[3]])
+plot(p2CDs[[4]])
+plot(p2CDs[[5]])
+```
+
+```{r fig2-PM1-E, fig.width=1.41, fig.height=1.32, fig.show='hold', echo=F, eval=T}
+p2EFs[[1]]
+p2EFs[[2]]
+p2EFs[[3]]
+```
+
+```{r fig2-PM1-F, fig.width=1.41, fig.height=1.32, fig.show='hold', echo=F, eval=T}
+p2EFs[[4]]
+p2EFs[[5]]
+p2EFs[[6]]
+```
+
+```{r fig2-PM1-G, fig.width=2.8, fig.height=1.55, fig.show='hold', echo=F, eval=T}
+p2G = feature_overlay_discrete(se, pt.size = base_pt_size, pt.stroke = 0.1,
+                               crop_area = default_plot_focus,
+                               features = "active.region.annotated",
+                               titles = "",
+                               colors = c("Double-negative spots" = "black",
+                                          "Interfacing tumor-positive spots" = "red",
+                                          "Interfacing immune-positive spots" = "green",
+                                          "Non-interfacing tumor-positive spots" = "darkred",
+                                          "Non-interfacing immune-positive spots" = "darkgreen",
+                                          "Interfacing double-positive spots" = "yellow"),
+                               pt_alpha = ifelse(se[["active.region"]]=="Background", 0., 1.),
+                               add_scalebar = T, scalebar_position = c(0.05, 0.85),
+                               scalebar_height = 0.18, scalebar_gg = p2scalebar) &
+  theme(legend.title = element_blank(), 
+        legend.position = "right",
+        legend.key.height = unit(10, "pt"), 
+        legend.box.spacing = unit(4, "pt"),
+        legend.text = element_text(size = unit(5.5, "pt")), 
+        plot.margin = margin(1,1,1,1, "pt"),
+        plot.caption = element_blank()) &
+  guides(fill=guide_legend(ncol = 1, override.aes = list(size = 2.5)))
+p2G[[1]][[1]] = p2G[[1]][[1]] & labs(caption="Resulting spot choice for LR-analysis")
+p2G[[1]][[2]] = p2G[[1]][[2]] + theme(panel.border = element_blank())
+p2G[[1]][[3]] = p2G[[1]][[3]] + theme(panel.border = element_blank())
+
+p2G
+```
+
+```{r fig2-PM1-H, fig.width=2.8, fig.height=1.55, fig.show='hold', echo=F, eval=T}
+ggdraw() + draw_image("./assets/IF_pictures_for_merged_panels/Fig2_PM1_IF.png")
+```
+
+
+# Figure 3
+
+
+```{r fig3-visium-combined-results-prep, echo=F, eval=T}
+# prep LRI results
+LRI_samples_used = setdiff(union(manifest$samples, manifest$external_samples), manifest$rejected_samples)
+LRI_samples_used = LRI_samples_used[sapply(LRI_samples_used,
+                                           function(sample_id) file.exists(file.path(manifest$workdata_parent, 
+                                                                                     manifest[[sample_id]]$workdata, 
+                                                                                     "09_NICHES_LRDE_res.rds")))]
+
+# results table for LRI + circos plot
+which.result = list(CTN = "border.markers.CellToNeighborhood",
+                    NTC = "border.markers.NeighborhoodToCell")[[manifest$Niches_result_used]]
+Niches_normalization_used = manifest$Niches_normalization_used
+sample_annos = sapply(LRI_samples_used, function(sample_id){
+  sample_manifest = manifest[[sample_id]]
+  return(sample_manifest$type)
+})
+sample_anno_colmap = setNames(c(tol9qualitative[1:length(unique(sample_annos))], "black"),
+                              nm = c(unique(sample_annos), NA))
+LRDEs = lapply(setNames(nm=LRI_samples_used), function(sample_id){
+  sample_manifest = manifest[[sample_id]]
+  work.dir = file.path(manifest$workdata_parent, sample_manifest$workdata)
+  resfile = file.path(work.dir, "09_NICHES_LRDE_res.rds")
+  return(readRDS(resfile))
+})
+melanoma_samples = LRDEs[LRI_samples_used %in% manifest$primary_melanoma_samples]
+melanoma_df = make_consensus_df(melanoma_samples, 
+                                results.name = which.result, 
+                                results.type = Niches_normalization_used)
+melanoma_df = annotate_df_with_significance_info(melanoma_df)
+pozniak_samples = LRDEs[LRI_samples_used %in% manifest$external_samples]
+pozniak_df = make_consensus_df(pozniak_samples, 
+                                results.name = which.result, 
+                                results.type = Niches_normalization_used)
+pozniak_df = annotate_df_with_significance_info(pozniak_df)
+
+TCGA_ref = make_TCGA.se(cohort = "TCGA-SKCM", sites = c("Primary Tumor"))
+StubS.expression.annos = readRDS(file.path(manifest$workdata_parent, "stubs.se_LRI_gene_expression_annos.Rds"))
+# show only mechanisms significant in all samples
+melanoma_df_filt = melanoma_df %>% filter(count_signif>2)
+melanoma_df_filt = add.TCGA.annos(melanoma_df_filt, TCGA_reference = TCGA_ref)
+melanoma_df_filt = add.sc.annos(melanoma_df_filt, expression.annos = StubS.expression.annos, annos.name = "Stubenvoll_Schmidt",
+                    cell.type.filter = c("Cytotoxic T Cells" = "Tcyt-activated", 
+                                         "Effector-memory T cells" = "Teff-mem",
+                                         "Regulatory T cells" = "Treg",
+                                         "NK Cells" = "NK",
+                                         "B Cells" = "B-cells",
+                                         "Dendritic-cells" = "Dendritic-cells",
+                                         "Macrophages" = "Macrophages",
+                                         "Endothelial Cells" = "Endothelial-cells",
+                                         "Keratinocytes" = "Keratinocytes",
+                                         "Fibroblasts" = "Fibroblasts",
+                                         "Melanoma (melanocytic)" = "Mel-trans-melan",
+                                         "Melanoma (transitory)" = "Mel-trans",
+                                         "Melanoma (nc-like)" = "Mel-nc-like"))
+
+
+# for already loaded PM1, add NICHES
+se = add_NICHES_to_se(se, obj1$NICHES_result$logcounts)
+
+# First row: border regions used for each sample
+samples_to_show = setdiff(intersect(c(manifest$primary_melanoma_samples, manifest$external_samples), LRI_samples_used), "PM1")
+
+p3_objs = lapply(setNames(nm=samples_to_show), function(sample){
+  sample_manifest = manifest[[sample]]
+  plt_crop = sample_manifest$crop_area
+  base_pt_size = estim_point_size(sample_manifest)*0.33
+  work.dir = file.path(manifest$workdata_parent, sample_manifest$workdata)
+  obj = readRDS(file.path(work.dir, "09_seurat.rds"))
+  se = obj$se
+  se = apply_magick_image_functions(se, function(x)image_average(c(image_contrast(x, sharpen = 1), image_normalize(x))))
+  se = add_NICHES_to_se(se, obj$NICHES_result$logcounts)
+  return(list(plt_crop = plt_crop,
+              base_pt_size = base_pt_size,
+              se = se,
+              NICHES_result = obj$NICHES_result))
+})
+
+pAE_widths = sapply(p3_objs, function(obj){
+  crop = obj$plt_crop
+  iminfo = obj$se@tools$Staffli@image_info
+  w = (crop[3] * iminfo$width) - (crop[1] * iminfo$width)
+  h = (crop[4] * iminfo$height) - (crop[2] * iminfo$height)
+  return(w/h)
+})
+
+# change: for plotting, exchange _ in complexes for +, easier to understand 
+melanoma_df_filt$mechanism = gsub(x = melanoma_df_filt$mechanism, "_", "+")
+pozniak_df$mechanism = gsub(x = pozniak_df$mechanism, "_", "+")
+
+```
+
+```{r fig3-visium-combined-results-a, fig.width=7, fig.height=1.25, fig.show = 'hold', echo=F, eval=T}
+
+p3As = lapply(names(p3_objs), function(sample_id){
+  obj = p3_objs[[sample_id]]
+  rel_width = pAE_widths[sample_id]
+  se = obj$se
+  p = feature_overlay_discrete(se, pt.size = rel_width*obj$base_pt_size,
+                               pt.stroke = 0.05, crop_area = obj$plt_crop, titles = paste0("  ", sample_id),
+                               features = "active.region.annotated",
+                               colors = c("Double-negative spots" = "black",
+                                  "Interfacing tumor-positive spots" = "red",
+                                  "Interfacing immune-positive spots" = "green",
+                                  "Non-interfacing tumor-positive spots" = "darkred",
+                                  "Non-interfacing immune-positive spots" = "darkgreen",
+                                  "Interfacing double-positive spots" = "yellow"),
+                              pt_alpha = ifelse(se[["active.region"]]=="Background", 0., 1.),
+                              add_scalebar = T, 
+                              scalebar_position = c(0.03, 0.92), 
+                 scalebar_height = 0.16, scalebar_gg = p2scalebar) &
+    guides(fill = guide_legend(override.aes = list(size = 2), nrow = 1)) &
+  theme(legend.title = element_blank(), 
+        plot.title = element_text(size = 6, vjust = 0, 
+                                  margin = margin(b=1.5, unit = "pt")),
+        legend.position = "bottom", 
+        legend.text = element_text(size = 5),
+        legend.key.spacing = unit(1, "pt"),
+        legend.key.size = unit(4.5, "pt"),
+        plot.margin = margin(0,0,0,0, "pt"), 
+        legend.margin = margin(0,0,0,0, "pt"), 
+        legend.box.margin = margin(0,0,0,0, "pt"))
+  
+  
+  p[[1]][[2]] = p[[1]][[2]] + theme(panel.border = element_blank())
+  p[[1]][[3]] = p[[1]][[3]] + theme(panel.border = element_blank())
+  return(p)
+})
+# cowplot struggles with this layered plot legend
+p3Aleg_panelnames = cowplot::plot_component_names(p3As[[2]][[1]])
+p3Aleg = cowplot::plot_components(p3As[[2]][[1]])[[which(str_starts(p3Aleg_panelnames, "guide-box-bottom"))]]
+
+plot_grid(
+  plot_grid(plotlist = lapply(p3As, function(x)x&theme(legend.position = "none")), 
+          nrow = 1, rel_widths = pAE_widths),
+  p3Aleg, ncol = 1, rel_heights = c(13,1)
+)
+```
+
+```{r fig3-visium-combined-results-b, fig.width=7*0.98, fig.height=3.3, fig.show = 'hold', echo=F, eval=T}
+# 3B: LRI consensus results table
+p3B = plot_combined_df(melanoma_df_filt %>% filter(count_signif==4), 
+                       anno.signifi.legend = "none", legend_rows = 1,
+                       width_StubS = 12, plot_signif = F,
+                       legend_barwidth = 4.5,
+                       plot_StubS = "quant", legends.rel.heights = 0.025, 
+                       plot_additional_dfs_list = list(pozniak_df)) & 
+  theme(axis.text = element_text(size = unit(5, "pt")),
+        legend.text = element_text(size = unit(5, "pt")),
+        title = element_text(size = unit(6, "pt")),
+        legend.title = element_text(size = unit(6, "pt"), hjust = 0.1),
+        strip.text =  element_text(size = unit(6, "pt")), 
+        legend.box.margin = margin(1,25,2,1,"pt"))
+
+p3B
+```
+
+```{r fig3-visium-combined-results-c, fig.width=3.5, fig.height=3.5, fig.show = 'hold', echo=F, eval=T}
+# p3C: circos
+# for circleplot
+# exclude if any of the above occurs in either source or target column
+exclude_regexes = c("^HLA-", "^CD4$", "^CD8", "^CD3")
+melanoma_df_filt_exludes = apply(sapply(exclude_regexes, function(r)str_detect(melanoma_df_filt$target_genesymbol, pattern = r)), FUN = any, MARGIN = 1) | apply(sapply(exclude_regexes, function(r)str_detect(melanoma_df_filt$source_genesymbol, pattern = r)), FUN = any, MARGIN = 1)
+melanoma_df_filt_2 = melanoma_df_filt[!melanoma_df_filt_exludes,]
+
+# 3-pc pca the distibution across celltypes and embed into rgb for colors
+col.df.prep = rbind(melanoma_df_filt_2 %>%
+              select(source_genesymbol, contains("source_Stubenvoll_Schmidt_norm_empirical_quantiles")) %>%
+              rename_with(~gsub("source_", "", .x, ignore.case = T)),
+            melanoma_df_filt_2 %>%
+              select(target_genesymbol, contains("target_Stubenvoll_Schmidt_norm_empirical_quantiles")) %>%
+              rename_with(~gsub("target_", "", .x, ignore.case = T))) %>%
+  distinct()
+minmax_std = function(xs, minval = 0.15, maxval = 0.75)(((xs-min(xs, na.rm = T))/(max(xs, na.rm = T)-min(xs, na.rm = T)))*(maxval-minval))+minval
+
+set.seed(20122025) #fix umap
+col.df = data.frame(genesymbol = col.df.prep$genesymbol,
+                    as.data.frame(uwot::umap(col.df.prep %>% select(!genesymbol) %>% as.matrix(), n_components = 3, n_neighbors = round(nrow(col.df.prep)/3)))) %>%
+  mutate(V1 = minmax_std(V1), V2 = minmax_std(V2), V3 = minmax_std(V3))
+col.df = col.df %>% mutate(color = rgb(red = 1-V2, green = V1, blue = 1-V3)) 
+
+#CairoPNG(filename = "public/circos_results.png", width = 3.5, height = 3.5, units = "in", dpi = 450)
+circle.vis.LRI(melanoma_df_filt_2, fontsize = 0.33, text.offset = 0.05, text.height.mult = 0.1, small.gap = 1, big.gap = 4, colors = setNames(col.df$color, nm = col.df$genesymbol))
+#dev.off()
+```
+
+```{r fig3-visium-combined-results-d, fig.width=3, fig.height=1.34, fig.show = 'hold', echo=F, eval=T}
+
+p3_scoreplot <- function(se, feature, assay, title, scalename, crop, pt.size, 
+                         leg_right = F, pt.stroke=0.06, colbar_width = 0.2, colbar_length = 0.6,
+                         scalebar_position = c(0.05, 0.85), scalebar_height = 0.2){
+  p = feature_overlay(se, feature, titles = title, assay = assay,
+                 limits = c(0., NA), crop_area = crop, 
+                 pt.size = pt.size, pt.stroke = pt.stroke,
+                 add_scalebar = T, scalebar_position = scalebar_position, 
+                 scalebar_height = scalebar_height, scalebar_gg = p2scalebar, 
+                 colorbar_width = if(leg_right){unit(colbar_width, "lines")}else{unit(colbar_length, "lines")}, 
+                 colorbar_height = if(leg_right){unit(colbar_length, "lines")}else{unit(colbar_width, "lines")},
+                 gg_guide_colorbar = guide_colorbar(title.position = "top", title.vjust = 1., title = scalename),
+                 oob = scales::squish) & 
+  theme(legend.position = ifelse(leg_right, "right", "bottom"),
+        plot.margin = margin(0,0,0,0, "pt"), 
+        legend.margin = margin(1,1,1,1, "pt"),
+        legend.box.spacing = unit(0, "pt"),
+        legend.box.just = "top",
+        legend.text = element_text(size = unit(5, "pt")),
+        plot.title = element_text(size = unit(6, "pt"), margin = margin(2,1,1,1,"pt"), vjust = 1),
+        legend.title = element_text(size = unit(6, "pt"), margin = margin(b = 2, unit = "pt")))
+  p[[1]][[2]] = p[[1]][[2]] + theme(panel.border = element_blank())
+  p[[1]][[3]] = p[[1]][[3]] + theme(panel.border = element_blank())
+  return(p)
+}
+
+# 3D: LGALS1, PTPRC gene expression + combined NICHES score
+p3D = plot_grid(nrow = 1, axis = "tb", align = "hv",
+                p3_scoreplot(se, "LGALS1", "RNA_logcounts", "LGALS1", " \nLog(Counts+1)",
+                             default_plot_focus, base_pt_size/1.2, leg_right=F),
+                p3_scoreplot(se, "PTPRC", "RNA_logcounts", "PTPRC", " \nLog(Counts+1)",
+                             default_plot_focus, base_pt_size/1.2, leg_right=F),
+                p3_scoreplot(se, "LGALS1—PTPRC", "CellToNeighborhood", "LGALS1—PTPRC", "NICHES\ninteraction score", 
+                             default_plot_focus, base_pt_size/1.1, leg_right=F)
+  )
+
+p3D
+```
+
+```{r fig3-visium-combined-results-e, fig.width=3.5, fig.height=2.5, fig.show = 'hold', echo=F, eval=T}
+p3Es = lapply(names(p3_objs), function(sample_id){
+  obj = p3_objs[[sample_id]]
+  rel_width = pAE_widths[sample_id]
+  se = obj$se
+  p = p3_scoreplot(se, "LGALS1—PTPRC", "CellToNeighborhood", sample_id, NULL, 
+                   scalebar_position = c(0.05, 0.83), scalebar_height = 0.13,
+                   obj$plt_crop, rel_width*obj$base_pt_size/1.1)
+  return(p)
+})
+
+plot_grid(plot_grid(plotlist = p3Es[1:3], nrow = 1, 
+                    rel_widths = pAE_widths[1:3]),
+          plot_grid(plotlist = p3Es[4:6], nrow = 1, 
+                    rel_widths = pAE_widths[4:6]),
+          ncol = 1, rel_heights = c(0.9, 1.0))
+
+```
+
+# Figure 6
+
+```{r fig6-survival-prep, fig.show = 'hold', echo=F, eval=T}
+TCGA.se = fetch_TCGA()
+TCGA.se = TCGA.se[, TCGA.se$gdc_cases.project.project_id == "TCGA-SKCM"]
+
+# removes "additional metastatic" normal tissue samples
+sites = c("Primary Tumor", "Metastatic")
+TCGA.se = TCGA.se[, TCGA.se$gdc_cases.samples.sample_type %in% sites]
+colData(TCGA.se) = droplevels(colData(TCGA.se))
+
+# removes trailing version numbers from ENSEMBL identifiers
+rownames(TCGA.se) = gsub("\\..+", "", rownames(TCGA.se))
+
+# load TCIA data 
+TCIA.fractions= read_tsv("./assets/TCIA-CellTypeFractionsData_SKCM_only_march2024.tsv", col_names = c("Patient", "Disease", "Celltype", "quanTIseq_lsei_TIL10", "Cibersort_LM22"))
+
+# should be good to go, but as sanity check retain only SKCM data
+TCIA.fractions = TCIA.fractions %>%
+  filter(Disease == "SKCM") %>%
+  distinct()
+
+TCIA.quanTIseq = transmute(TCIA.fractions, 
+                           Patient = Patient, 
+                           Celltype = Celltype,
+                           Fraction = quanTIseq_lsei_TIL10) %>%
+  pivot_wider(names_from = Celltype, values_from = Fraction) 
+
+pat = TCIA.quanTIseq$Patient
+TCIA.quanTIseq = TCIA.quanTIseq %>%
+  select(!Patient) %>%
+  rename_with(~ paste0("quanTIseq_", make.names(.x))) %>%
+  as.data.frame()
+rownames(TCIA.quanTIseq) = pat
+
+TCIA.Cibersort = transmute(TCIA.fractions, 
+                           Patient = Patient, 
+                           Celltype = Celltype,
+                           Fraction = Cibersort_LM22) %>%
+  pivot_wider(names_from = Celltype, values_from = Fraction)
+
+pat = TCIA.Cibersort$Patient
+TCIA.Cibersort = TCIA.Cibersort %>%
+  select(!Patient) %>%
+  rename_with(~ paste0("cibersort_", make.names(.x))) %>%
+  as.data.frame()
+rownames(TCIA.Cibersort) = pat
+
+TCIA.Cibersort = TCIA.Cibersort[,!(apply(is.na(TCIA.Cibersort), FUN = all, MARGIN = 2))]
+
+# format and filter TCGA data, add TCIA data to TCGA pheno data
+pheno = data.frame(colData(TCGA.se))
+organ = unique(TCGA.se$gdc_cases.project.primary_site)
+
+# remove columns containing only NAs
+pheno =  pheno[, which(apply(pheno, 2, function(x) !all(is.na(x))))]
+
+exprs.tpm = data.frame(assays(TCGA.se)$tpm, check.names = F)
+exprs.mat = log1p(exprs.tpm)
+var.nonzero = apply(exprs.mat, 1, function(x) { stats::var(x) > 0.0001 })
+exprs.mat = exprs.mat[var.nonzero,]
+exprs.mat.std = standardize(exprs.mat)
+
+sampleIDs = rownames(pheno)
+exprs.mat = exprs.mat[, colnames(exprs.mat) %in% sampleIDs]
+exprs.mat.std = exprs.mat.std[, colnames(exprs.mat.std) %in% sampleIDs]
+exprs.tpm = exprs.tpm[, colnames(exprs.tpm) %in% sampleIDs]
+# Consistency check: Expression colnames are in the same order as pheno rownames
+stopifnot(identical(rownames(pheno), colnames(exprs.mat)))
+stopifnot(identical(rownames(pheno), colnames(exprs.tpm)))
+
+# Combining time to event variables for surv_fu_days:
+# - Time to death is in $gdc_cases.diagnoses.days_to_death
+# - Death is indicated by non NA in $gdc_cases.diagnoses.days_to_death
+#   (over $gdc_cases.diagnoses.vital_status, which contains 2 errors)
+# - Follow up time is in $gdc_cases.diagnoses.days_to_last_follow_up
+# - Negative entries in $gdc_cases.diagnoses.days_to_last_follow_up have been 
+#   explained by the GDC Helpdesk in this issue: https://github.com/BioinformaticsFMRP/TCGAbiolinks/issues/324 
+
+# surv_fu_days captures the time to event, therefore
+# - DoD is indicated by non-NA value of $gdc_cases.diagnoses.days_to_death
+# - time to event or censoring is the time to DoD if available and time to
+#   last follow-up else. Negative or zero entries can then be discarded, since
+#   they don't give any information about the survival/death of the patient 
+
+pheno = cbind(pheno, 
+              surv_fu_days = coalesce(pheno$gdc_cases.diagnoses.days_to_death,
+                                      pheno$gdc_cases.diagnoses.days_to_last_follow_up),
+              surv_deceased = !is.na(pheno$gdc_cases.diagnoses.days_to_death))
+pheno$surv_fu_days[pheno$surv_fu_days <= 0] = NA # Changing uninformative time to event to "NA"
+
+# sanity check 
+stopifnot(identical(rownames(pheno), colnames(exprs.mat)))
+
+which_not_na = which(!is.na(pheno$surv_fu_days))
+pheno = pheno[which_not_na, ]
+exprs.mat = exprs.mat[ ,which_not_na]
+exprs.mat.std = exprs.mat.std[ ,which_not_na]
+exprs.tpm = exprs.tpm[, which_not_na]
+
+#sanity check
+stopifnot(identical(rownames(pheno), colnames(exprs.mat)))
+stopifnot(identical(rownames(pheno), colnames(exprs.tpm)))
+
+# add TCIA Cybersort data
+pat = pheno$cgc_case_id
+pheno = cbind(pheno, TCIA.Cibersort[pat,])
+
+# add TCIA quanTIseq data
+pheno = cbind(pheno, TCIA.quanTIseq[pat,])
+
+tcga_plt_dat = pheno %>%
+  mutate(surv_fu_years = surv_fu_days/365,
+         Sample_type = gdc_cases.samples.sample_type,
+         ptprc = unlist(exprs.mat["ENSG00000081237",]),
+         lgals1 = unlist(exprs.mat["ENSG00000100097",]),
+         cd8t_median = quanTIseq_CD8.T.cells > median(quanTIseq_CD8.T.cells, na.rm = T))
+
+## Gide et al. data
+gide_tpm = readr::read_tsv("../../datasets/SRA_Downloads/gide_et_al_2019_melanoma/merged_output/quanTIseq_gene_tpm.txt")
+gide_celltypes = readr::read_tsv("../../datasets/SRA_Downloads/gide_et_al_2019_melanoma/merged_output/quanTIseq_cell_fractions.txt")
+Gide_meta_final = readr::read_tsv("./data/survival_data/Gide_et_al_metadata.tsv")
+
+gide_pheno = Gide_meta_final %>% 
+  dplyr::rename(Sample = Run) %>%
+  left_join(gide_celltypes, by = "Sample") %>%
+  mutate(surv_os = `Overall Survival (Days)`, 
+         surv_deceased = `Last Followup Status` != "Alive",
+         pretreatment_sample = str_detect(Sample_name, pattern = "PRE"))
+
+gide_expr = data.frame(gide_tpm %>% select(!GENE))
+rownames(gide_expr) = gide_tpm$GENE
+
+gide_pheno$lgals1 = unlist(gide_expr["LGALS1", gide_pheno$Sample])
+gide_pheno$ptprc = unlist(gide_expr["PTPRC", gide_pheno$Sample])
+
+gide_plt_dat = gide_pheno %>%
+  mutate(surv_fu_years = surv_os/365,
+         PD1_Inhibitor = factor(ifelse(str_detect(Treatment, "Pembrolizumab"), 
+                                       "Pembrolizumab", "Nivolumab"), 
+                                   levels = c("Pembrolizumab", "Nivolumab")),
+         CTLA4_Inhibitor = factor(ifelse(str_detect(Treatment, "Ipilimumab"), 
+                                         "Ipilimumab", "None"), 
+                                     levels = c("None", "Ipilimumab")),
+         cd8t_median = T.cells.CD8 > median(T.cells.CD8, na.rm = T)) %>%
+  as.data.frame()
+
+# ggtheme similar to mytheme but for survplots
+mysurvtheme = function(base_size = 12){
+  half_line <- base_size/2
+  theme_classic(base_size = base_size) &
+    theme(
+      axis.ticks.length = unit(half_line / 2.2, "pt"),
+      strip.text.x = element_text(size = rel(1), colour = "black"),
+      strip.text.y = element_text(size = rel(1), colour = "black"),
+      strip.text = element_text(size = rel(1), colour = "black"),
+      axis.text = element_text(size = rel(1), colour = "black"),
+      axis.title = element_text(size = rel(1), colour = "black"),
+      legend.title = element_text(colour = "black", size = rel(1)),
+      legend.key.size = unit(1, "lines"),
+      legend.text = element_text(size = rel(1), colour = "black"),
+      legend.key = element_rect(colour = NA, fill = NA),
+      legend.background = element_rect(colour = NA, fill = NA),
+      plot.title = element_text(hjust = 0, face = "plain", colour = "black", size = rel(1)),
+      plot.subtitle = element_text(colour = "black", size = rel(.85))
+    )
+}
+
+# basic plots both
+
+survival_extra_p1 = ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~ cd8t_median, 
+                                    data = tcga_plt_dat), ggtheme = mysurvtheme(),
+                           conf.int = T, pval = T, pval.coord = c(0, 0.02), 
+                           pval.method.coord =  c(0, 0.13), pval.method = T, 
+                           data = tcga_plt_dat, facet.by = "Sample_type", ncol = 1) & 
+            labs(x = "Time (years)", fill = "CD8 T cell content < median", 
+                 color = "CD8 T cell content < median") & 
+  theme(legend.position = "left", )
+
+survival_extra_p2 = ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~ cd8t_median, 
+                                    data = gide_plt_dat), ggtheme = mysurvtheme(),
+                           conf.int = T, pval = T, pval.coord = c(0, 0.02), 
+                           pval.method.coord =  c(0, 0.13), pval.method = T, 
+                           data = gide_plt_dat, facet.by = "PD1_Inhibitor", ncol = 1) & 
+            labs(x = "Time (years)", fill = "CD8 T cell content < median", 
+                 color = "CD8 T cell content < median") & 
+  theme(legend.position = "left", )
+
+# plot_grid(survival_extra_p1, NULL, survival_extra_p2, nrow = 1, labels = c("      TCGA-SKCM","", "      Gide et al."), 
+#           rel_widths = c(1, 0.1, 1), label_fontface = "plain", label_size = 14, hjust = 0, vjust = 1.6)
+#           
+
+tcga_metas = tcga_plt_dat %>%
+  filter(gdc_cases.samples.sample_type == "Metastatic" & quanTIseq_CD8.T.cells > 0) %>%
+  mutate(CD8_T_cells = ifelse(quanTIseq_CD8.T.cells>median(quanTIseq_CD8.T.cells), "high", "low")) %>%
+  mutate(PTPRC = ifelse(ptprc>median(ptprc), "high", "low"),
+         LGALS1 = ifelse(lgals1>median(lgals1), "high", "low")) %>%
+  ungroup() %>%
+  as.data.frame()
+
+gide_plt_subset = gide_plt_dat %>%
+  filter(PD1_Inhibitor == "Pembrolizumab") %>%
+  mutate(LGALS1 = ifelse(lgals1>median(lgals1, na.rm = T), "high", "low"),
+         PTPRC = ifelse(ptprc>median(ptprc, na.rm = T), "high", "low")) %>%
+  as.data.frame()
+
+tcga_metas_cd8_split = tcga_plt_dat %>%
+  filter(gdc_cases.samples.sample_type == "Metastatic" & quanTIseq_CD8.T.cells > 0) %>%
+  mutate(CD8_T_cells = ifelse(quanTIseq_CD8.T.cells>median(quanTIseq_CD8.T.cells), "high", "low")) %>%
+  group_by(CD8_T_cells) %>%
+  mutate(PTPRC = ifelse(ptprc>median(ptprc), "high", "low"),
+         LGALS1 = ifelse(lgals1>median(lgals1), "high", "low")) %>%
+  ungroup() %>%
+  as.data.frame()
+
+```
+
+
+```{r fig6-survival-a, fig.width=3.45*2, fig.height=1.75*2, fig.show = 'hold', out.width='50%', dpi=450/2, echo=F, eval=T}
+# rendered in double size half resolution, because this survminer version has a problem with 
+# changing teh text size of the p-value field -> quick fix: reduce size by half when inserting 
+
+plot_grid(NULL, ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~ PTPRC, 
+                                         data = tcga_metas), pval.coord = c(0, 0.03), 
+                                 pval.method.coord =  c(0, 0.15), pval = T, 
+                                 size = 0.7, pval.method = T, data = tcga_metas, ggtheme = mysurvtheme(base_size = 12),
+                                 facet.by = c("LGALS1"), nrow = 1, conf.int = T) & 
+                    labs(x = "Time (years)", fill = "PTPRC", color = "PTPRC") & 
+                    theme(legend.position = "left"), 
+          ncol = 1, rel_heights = c(0.15, 2), label_size = 10, label_fontface = "plain", 
+          hjust = 0, vjust = 1.6, labels = c("      TCGA-SKCM: filtered metastases, non-zero infiltration", ""))
+```
+
+```{r fig6-survival-b, fig.width=3.45*2, fig.height=1.75*2, fig.show = 'hold', out.width='50%', dpi=450/2, echo=F, eval=T}
+plot_grid(NULL, ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~ PTPRC, 
+                                         data = gide_plt_subset), pval.coord = c(0, 0.03), 
+                                 pval.method.coord =  c(0, 0.15), pval = T, 
+                                 palette = RColorBrewer::brewer.pal(8, "Set2")[2:1],
+                                 size = 0.7, pval.method = T, data = gide_plt_subset, 
+                                 ggtheme = mysurvtheme(base_size = 12),
+                                 facet.by = c("LGALS1"), nrow = 1, conf.int = T) & 
+                    labs(x = "Time (years)", fill = "PTPRC", color = "PTPRC") & 
+                    theme(legend.position = "left"), 
+          ncol = 1, rel_heights = c(0.15, 2), label_size = 10, label_fontface = "plain", 
+          hjust = 0, vjust = 1.6, labels = c("      Gide et al.: Pembrolizumab patients", ""))
+```
+```{r fig6-survival-c, fig.width=3.2*2, fig.height=2.6*2, fig.show = 'hold', out.width='50%', dpi=450/2, echo=F, eval=T}
+plot_grid(NULL, ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~ LGALS1, 
+                              data = tcga_metas_cd8_split), pval.coord = c(0, 0.03), 
+                           pval.method.coord =  c(0, 0.15), pval = T, size = 0.7, 
+                      pval.method = T, data = tcga_metas_cd8_split, ggtheme = mysurvtheme(base_size = 12),
+                      facet.by = c("CD8_T_cells", "PTPRC"), nrow = 1, conf.int = T) & 
+            labs(x = "Time (years)", fill = "LGALS1", 
+                 color = "LGALS1") & theme(legend.position = "left")
+, ncol = 1, rel_heights = c(0.2, 1.6), 
+            label_size = 10, label_fontface = "plain", hjust = 0, vjust = 1.6, 
+            labels = c("      TCGA-SKCM:\tfiltered metastases, non-zero infiltration,\n\t\t\t\tLGALS1/PTPRC splits calculated within CD8 T cell subgroups", ""))
+```
+
+# Extended Figures
+
+```{r supp-heatmap-gsea-prep}
+other_samples_markers = lapply(setNames(nm=names(p3_objs)), 
+                               function(sample){
+  sample_manifest = manifest[[sample]]
+  work.dir = file.path(manifest$workdata_parent, sample_manifest$workdata)
+  obj.mrkrs.ora = readRDS(file.path(work.dir, "07_cluster_markers.rds"))
+  se = p3_objs[[sample]]$se
+  se.full = readRDS(file.path(work.dir, "01_seurat_full.rds"))
+  se.full = apply_magick_image_functions(se.full,
+                                         function(x)image_average(
+                                           c(image_contrast(x, sharpen = 1),
+                                             image_normalize(x))))
+
+  se$Cluster = se[[obj.mrkrs.ora$cl.res]]
+  Idents(se) = "Cluster"
+  cl.col = gg_color_hue(length(levels(se$Cluster)))
+  names(cl.col) = levels(se$Cluster)
+  
+  return(list(se = se,
+              se.full = se.full,
+              cl.col = cl.col,
+              obj.mrkrs.ora = obj.mrkrs.ora,
+              base_pt_size = p3_objs[[sample]]$base_pt_size,
+              plt_crop = p3_objs[[sample]]$plt_crop))
+})
+```
+
+## PM1
+
+```{r supp-pm1-a, fig.width=3.5, fig.height=3.9, fig.show='hold', echo=F, eval=T, dpi=300}
+# obj.mrkrs.ora
+# cl.col
+
+# Cluster marker
+# markers = obj.mrkrs.ora$cluster.marker.wlcxn
+# dgea.pvalue = obj.mrkrs.ora$dgea.pvalue
+# 
+# # ORA
+# res.cP.cc.go = obj.mrkrs.ora$res.cP.cc.go
+# res.cP.cc.go.sim = obj.mrkrs.ora$res.cP.cc.go.sim
+# ora.oe = obj.mrkrs.ora$tops.l.oe
+# ora.pvalue = obj.mrkrs.ora$ora.pvalue
+
+markers.sign = subset(obj.mrkrs.ora$cluster.marker.wlcxn, p_val_adj < obj.mrkrs.ora$dgea.pvalue)
+top = subset(markers.sign, (avg_log2FC > 0)) %>% group_by(cluster) %>% 
+  mutate(logrank = dense_rank(desc(avg_log2FC)), pvalrank = dense_rank(p_val_adj)) %>%
+  slice_min(logrank, n = 10)
+
+DoHeatmap(se, features  = top$gene, raster = F, angle = 0, size=2.4, hjust=0.5, 
+          draw.lines = F, assay = "Spatial", group.color = cl.col) +
+  guides(color = "none") +
+  scale_fill_scico(palette = "vik", end = 1, direction = 1, midpoint = 0.) +
+  #mytheme() +
+  theme(axis.line=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks=element_blank(),
+        axis.title=element_blank(),
+        line = element_blank(),
+        panel.background=element_blank(),
+        panel.border=element_blank(),
+        plot.background=element_blank(),
+        legend.key.width = unit(0.5, "lines"),
+        plot.margin = margin(1,1,-12,1, "pt"),
+        axis.text.y.left = element_text(size = 4.9)) +
+  labs(colour = "Cluster", fill = "Standardized\nexpression")
+```
+
+## PM2
+
+```{r supp-pm2-a, fig.width=2, fig.height=1.4, fig.show='hold', echo=F, eval=T, dpi=300}
+# Histo anno overlay
+supp_histoplot = function(obj){
+    p = feature_overlay(
+      obj$se.full,
+      crop_area = obj$plt_crop,
+      pt.size = obj$base_pt_size*1.5,
+      features = "nFeature_Spatial",
+      pt_alpha = 0, 
+      add_scalebar = T,
+      scalebar_position = c(0.05, 0.9),
+      scalebar_height = 0.15,
+      scalebar_gg = p2scalebar
+  ) &
+    ggtitle(NULL, subtitle = NULL) &
+    theme(
+      legend.position = "none",
+      plot.margin = margin(1,1,1,1, "pt"),
+      axis.title = element_blank(),
+      axis.text = element_blank(),
+      axis.ticks = element_blank()
+    )
+  # remove scalebar border
+  p[[1]][[2]] = p[[1]][[2]] + theme(panel.border = element_blank())
+  p
+}
+
+supp_histoplot(other_samples_markers$PM2)
+```
+
+```{r supp-pm2-b, fig.width=2, fig.height=1.55, fig.show='hold', echo=F, eval=T, dpi=300}
+# sclusters on histo
+supp_clusterplot = function(obj){
+  cl.col = gg_color_hue(length(levels(obj$se$seurat_clusters)))
+  p = feature_overlay_discrete(
+    obj$se, 
+    features = "seurat_clusters",
+    crop_area = obj$plt_crop,
+    pt.size = obj$base_pt_size*1.5,
+    pt.stroke = 0.1,
+    add_scalebar = T,
+    scalebar_position = c(0.05, 0.9),
+    scalebar_height = 0.15,
+    scalebar_gg = p2scalebar,
+    colors = cl.col
+    ) &
+    theme(
+      legend.text = element_text(size = unit(7, "pt")),
+      legend.title = element_text(size = unit(6, "pt")),
+      legend.key.height = unit(10, "pt"),
+      legend.box.spacing = unit(4, "pt"),
+      plot.margin = margin(1,1,1,1, "pt"),
+      axis.title = element_blank(),
+      axis.text = element_blank(),
+      axis.ticks = element_blank(),
+      legend.position = "right"
+    ) &
+    guides(fill = guide_legend(title = "Cluster", ncol = 1, override.aes = list(size=2.5))) & 
+    ggtitle(NULL, subtitle = NULL)
+  # remove scalebar border
+  p[[1]][[2]] = p[[1]][[2]] + theme(panel.border = element_blank())
+  p[[1]][[3]] = p[[1]][[3]] + theme(panel.border = element_blank())
+  p
+}
+
+supp_clusterplot(p3_objs$PM2)
+```
+
+```{r supp-pm2-c, fig.width=3.5, fig.height=4.7, fig.show='hold', echo=F, eval=T, dpi=300}
+supp_heatmap = function(obj, genesize = 4.8){
+  markers.sign = subset(obj$obj.mrkrs.ora$cluster.marker.wlcxn, p_val_adj < obj$obj.mrkrs.ora$dgea.pvalue)
+  top = subset(markers.sign, (avg_log2FC > 0)) %>% group_by(cluster) %>% 
+    mutate(logrank = dense_rank(desc(avg_log2FC)), pvalrank = dense_rank(p_val_adj)) %>%
+    slice_min(logrank, n = 10)
+  
+  p = DoHeatmap(obj$se, features  = top$gene, raster = F, angle = 0, size=2., 
+                hjust=0.5, group.bar.height = 0.0175, 
+                draw.lines = F, assay = "Spatial", group.color = obj$cl.col) +
+    guides(color = "none") +
+    scale_fill_scico(palette = "vik", end = 1, direction = 1, midpoint = 0.) +
+    #mytheme() +
+    theme(axis.line=element_blank(),
+          axis.text.x=element_blank(),
+          axis.ticks=element_blank(),
+          axis.title=element_blank(),
+          line = element_blank(),
+          panel.background=element_blank(),
+          panel.border=element_blank(),
+          plot.background=element_blank(),
+          legend.key.width = unit(0.5, "lines"),
+          plot.margin = margin(3,1,-12,1, "pt"),
+          axis.text.y.left = element_text(size = genesize)) +
+    labs(colour = "Cluster", fill = "Standardized\nexpression")
+  p
+}
+
+supp_heatmap(other_samples_markers$PM2, genesize = 4.2)
+```
+
+```{r supp-pm2-h, fig.width=3., fig.height=2.6, fig.show = 'hold', echo=F, eval=T, dpi=300}
+plt_deconv_and_scores_supp <- function(obj){
+  se = obj$se
+  plt_crop = obj$plt_crop
+  base_pt_size = obj$base_pt_size/1.2
+  se = add_NICHES_to_se(se, obj$NICHES_result$logcounts)
+
+  plotmax_T = max(quantile(unlist(se[["T.cells_logcounts"]]), probs = 0.995), 0.4)
+  plotmax_NK = max(quantile(unlist(se[["NK.cells_logcounts"]]), probs = 0.995), 0.4)
+  plotmax_Mel = max(quantile(unlist(se[["melanocytes.malignant.cells_logcounts"]]), probs = 0.995), 0.4)
+  
+  return(wrap_plots(ncol = 2, byrow = F,
+    p2_scoreplot(se, "CARD_decon_mean_T/NK_cells", limits = c(0., NA), 
+                 crop_area = plt_crop, pt.size = base_pt_size, pt.stroke = 0.06,
+                 scalename = "Cell Type\nProportion", "T/NK deconvolution"),
+    p2_scoreplot(se, "T.cells_logcounts", limits = c(0., plotmax_T), 
+                 crop_area = plt_crop, pt.size = base_pt_size, pt.stroke = 0.06,
+                 scalename = "Module\nScore", title = "T cells score"),
+    p2_scoreplot(se, "NK.cells_logcounts", limits = c(0., plotmax_NK), 
+                 crop_area = plt_crop, pt.size = base_pt_size, pt.stroke = 0.06,
+                 scalename = "Module\nScore", "NK cells score"),
+    p2_scoreplot(se, "CARD_decon_mean_Melanocytic_cells", limits = c(0., NA), 
+                 crop_area = plt_crop, pt.size = base_pt_size, pt.stroke = 0.06,
+                 scalename = "Cell Type\nProportion", "Melanoma cells deconvolution"),
+    p2_scoreplot(se, "melanocytes.malignant.cells_logcounts", limits = c(0., plotmax_Mel), 
+                 crop_area = plt_crop, pt.size = base_pt_size, pt.stroke = 0.06,
+                 scalename = "Module\nScore", title = "Melanoma cells score")))
+}
+
+plt_deconv_and_scores_supp(p3_objs$PM2)
+```
+
+
+## PM3
+
+```{r supp-pm3-a, fig.width=2, fig.height=1.4, fig.show='hold', echo=F, eval=T, dpi=300}
+supp_histoplot(other_samples_markers$PM3)
+```
+
+```{r supp-pm3-b, fig.width=2, fig.height=1.4, fig.show='hold', echo=F, eval=T, dpi=300}
+supp_clusterplot(p3_objs$PM3)
+```
+
+```{r supp-pm3-c, fig.width=3.5, fig.height=4.4, fig.show='hold', echo=F, eval=T, dpi=300}
+supp_heatmap(other_samples_markers$PM3, genesize = 4.6)
+```
+
+```{r supp-pm3-g, fig.width=3., fig.height=2.5, fig.show = 'hold', echo=F, eval=T, dpi=300}
+plt_deconv_and_scores_supp(p3_objs$PM3)
+```
+
+## PM4
+
+```{r supp-pm4-a, fig.width=2, fig.height=1.4, fig.show='hold', echo=F, eval=T, dpi=300}
+supp_histoplot(other_samples_markers$PM4)
+```
+
+```{r supp-pm4-b, fig.width=2, fig.height=1.4, fig.show='hold', echo=F, eval=T, dpi=300}
+supp_clusterplot(p3_objs$PM4)
+```
+
+```{r supp-pm4-c, fig.width=3.5, fig.height=4., fig.show='hold', echo=F, eval=T, dpi=300}
+supp_heatmap(other_samples_markers$PM4, genesize = 4.8)
+```
+
+```{r supp-pm4-g, fig.width=3., fig.height=2.6, fig.show = 'hold', echo=F, eval=T, dpi=300}
+plt_deconv_and_scores_supp(p3_objs$PM4)
+```
+
+## Extended 6: unfiltered results table (signif in min 3/4 samples)
+
+```{r ext-6-results-long, fig.width=7., fig.height=9.5, fig.show = 'hold', echo=F, eval=T}
+print(paste(melanoma_df_filt %>% filter(count_signif>=3) %>% nrow(), "interactions in at least 3/4 samples"))
+
+plot_combined_df(melanoma_df_filt%>% filter(count_signif>=3), 
+                 order.signif.overwrite = T,
+                 anno.signifi.legend = "plot", legend_rows = 1,
+                 signif_text_size = 1., width_StubS = 11,
+                 legend_barwidth = 4.3,
+                 plot_StubS = "quant", legends.rel.heights = 0.02, 
+                 plot_additional_dfs_list = list(pozniak_df)) & 
+  theme(axis.text = element_text(size = unit(4.5, "pt")),
+        legend.text = element_text(size = unit(5, "pt")),
+        legend.title = element_text(size = unit(6., "pt"), hjust = 0.1),
+        title = element_text(size = unit(6.5, "pt")),
+        strip.text =  element_text(size = unit(6.5, "pt")), #8.5
+        legend.box.margin = margin(1,25,2,1,"pt"))
+```
+
+# Supplementary Figures
+
+Less effort :)
+
+## Survival Supplement
+
+```{r survival-supp, fig.width=6.5*2, fig.height=2.5*2, fig.show = 'hold', echo=F, eval=T, dpi=300/2}
+plot_grid(survival_extra_p1, NULL, survival_extra_p2, nrow = 1, 
+          labels = c("      TCGA-SKCM","", "      Gide et al."), label_size = 14, 
+          rel_widths = c(1, 0.1, 1), label_fontface = "plain", hjust = 0, vjust = 1.6)
+
+gide_plt_subset_cd8_split = gide_plt_dat %>%
+  filter(PD1_Inhibitor == "Pembrolizumab") %>%
+  mutate(CD8_T_cells = ifelse(T.cells.CD8>median(T.cells.CD8), "high", "low")) %>%
+  group_by(CD8_T_cells) %>%
+  mutate(LGALS1 = ifelse(lgals1>median(lgals1, na.rm = T), "high", "low"),
+         PTPRC = ifelse(ptprc>median(ptprc, na.rm = T), "high", "low")) %>%
+  as.data.frame()
+
+plot_grid(NULL, ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~ LGALS1, 
+                              data = gide_plt_subset_cd8_split), pval.coord = c(0, 0.03), 
+                           pval.method.coord =  c(0, 0.15), pval = T, 
+                      pval.method = T, data = gide_plt_subset_cd8_split, ggtheme = mysurvtheme(),
+                      palette = RColorBrewer::brewer.pal(8, "Set2")[2:1],
+                      facet.by = c("CD8_T_cells", "PTPRC"), nrow = 1, conf.int = T) & 
+            labs(x = "Time (years)", fill = "LGALS1", 
+                 color = "LGALS1") & theme(legend.position = "left"), ncol = 1, rel_heights = c(0.15, 1.6), 
+            label_size = 14, label_fontface = "plain", hjust = 0, vjust = 1.6, 
+            labels = c("      Gide et al.: Pembrolizumab patients, LGALS1/PTPRC calculated splits within CD8 T cell subgroups", ""))
+```
+
+## Supplement 6, Interaction Plots Visium
+
+```{r supp-6-interaction-plots, fig.width=7., fig.height=3.2, fig.show = 'hold', echo=F, eval=T, dpi=300}
+supp6_labels = paste0("PM", 1:4)
+supp6_objs = setNames(c(list(PM1 = list(se = se, plt_crop = default_plot_focus, base_pt_size = base_pt_size)), 
+                        p3_objs[paste0("PM", 2:4)]), nm = supp6_labels)
+supp6_widths = sapply(supp6_objs, function(obj){
+  crop = obj$plt_crop
+  iminfo = obj$se@tools$Staffli@image_info
+  w = (crop[3] * iminfo$width) - (crop[1] * iminfo$width)
+  h = (crop[4] * iminfo$height) - (crop[2] * iminfo$height)
+  return(w/h)
+})
+
+plt_genes_w_interaction_2_cols <- function(objs, lig, rec){
+  ligrec = paste0(lig, "—", rec)
+  n_objs = length(objs)
+  n_rows = 1:ceiling(n_objs/2)
+  
+  plts = lapply(n_rows, function(i){
+    obj1 = objs[[(2*i)-1]]
+    se1 = obj1$se
+    plt_crop1 = obj1$plt_crop
+    base_pt_size1 = obj1$base_pt_size
+    width1 = supp6_widths[(2*i)-1]
+    name1 = supp6_labels[(2*i)-1]
+    
+    p1 = plot_grid(nrow = 1, axis = "tb", align = "hv", 
+            p3_scoreplot(se1, lig, "RNA_logcounts", lig, "Log(Counts+1)",
+                         plt_crop1, base_pt_size1, leg_right=F) &
+              theme(plot.title = element_text(hjust = 0.5)),
+            p3_scoreplot(se1, rec, "RNA_logcounts", rec, "Log(Counts+1)",
+                         plt_crop1, base_pt_size1, leg_right=F) &
+              theme(plot.title = element_text(hjust = 0.5)),
+            p3_scoreplot(se1, ligrec, "CellToNeighborhood", ligrec, 
+                         "NICHES\ninteraction score", plt_crop1, base_pt_size1, leg_right=F) &
+              theme(plot.title = element_text(hjust = 0.5)))
+    if ((2*i) > n_objs){
+      p2 = NULL
+      width2 = 1
+      name2 = ""
+    } else {
+      obj2 = objs[[(2*i)]]
+      se2 = obj2$se
+      plt_crop2 = obj2$plt_crop
+      base_pt_size2 = obj2$base_pt_size
+      width2 = supp6_widths[(2*i)]
+      name2 = supp6_labels[(2*i)]
+      
+      p2 = plot_grid(nrow = 1, axis = "tb", align = "hv", 
+              p3_scoreplot(se2, lig, "RNA_logcounts", lig, "Log(Counts+1)",
+                           plt_crop2, base_pt_size2, leg_right=F) &
+                theme(plot.title = element_text(hjust = 0.5)),
+              p3_scoreplot(se2, rec, "RNA_logcounts", rec, "Log(Counts+1)",
+                           plt_crop2, base_pt_size2, leg_right=F) &
+                theme(plot.title = element_text(hjust = 0.5)),
+              p3_scoreplot(se2, ligrec, "CellToNeighborhood", ligrec, 
+                           "NICHES\ninteraction score", plt_crop2, base_pt_size2, leg_right=F) &
+                theme(plot.title = element_text(hjust = 0.5)))
+    }
+    return(plot_grid(p1, p2, nrow = 1, rel_widths = c(width1, width2), 
+                     labels = c(name1, name2), label_size = 7))
+  })
+  return(plot_grid(plotlist = plts, ncol = 1))
+}
+
+supp6_plts_1 = plt_genes_w_interaction_2_cols(supp6_objs, "LGALS1", "PTPRC")
+supp6_plts_2 = plt_genes_w_interaction_2_cols(supp6_objs, "MIF", "CD74")
+supp6_plts_3 = plt_genes_w_interaction_2_cols(supp6_objs, "ITGB2", "ITGAL")
+supp6_plts_4 = plt_genes_w_interaction_2_cols(supp6_objs, "CXCL9", "P2RY14")
+
+plot(supp6_plts_1)
+plot(supp6_plts_2)
+plot(supp6_plts_3)
+plot(supp6_plts_4)
+```
+
+## Supplement 8? Pozniak Data
+
+```{r pozniak-plots-prep}
+
+gen_pozniak_plots <- function(samplename){
+  current_sample = samplename
+  sample_manifest = manifest[[current_sample]]
+  default_plot_focus = sample_manifest$crop_area
+  base_pt_size = estim_point_size(sample_manifest)*0.335
+  work.dir = file.path(manifest$workdata_parent, sample_manifest$workdata)
+  obj1 = readRDS(file.path(work.dir, "09_seurat.rds"))
+  se = obj1$se
+  se = apply_magick_image_functions(se, function(x)image_average(c(image_contrast(x, sharpen = 1), image_normalize(x))))
+  
+  plotmax_T = max(quantile(unlist(se[["T.cells_logcounts"]]), probs = 0.995), 0.4)
+  plotmax_NK = max(quantile(unlist(se[["NK.cells_logcounts"]]), probs = 0.995), 0.4)
+  plotmax_Mel = max(quantile(unlist(se[["melanocytes.malignant.cells_logcounts"]]), probs = 0.995), 0.4)
+  
+  tscore_range = 1.1*range(se$T.cells_logcounts)
+  malscore_range = pmax(1.1*range(se$melanocytes.malignant.cells_logcounts), c(-0.55, 0.5)) # not lower than -0.5 plus padding
+  deconv_range_max = max(c(se$`CARD_decon_mean_T/NK_cells`, se$CARD_decon_mean_Melanocytic_cells))+0.01
+  tplots_dat = tibble(tnk_decon = se$`CARD_decon_mean_T/NK_cells`, 
+                t_score = se$T.cells_logcounts, 
+                act = se$T.positive)
+  nkplots_dat = tibble(tnk_decon = se$`CARD_decon_mean_T/NK_cells`, 
+                nk_score = se$NK.cells_logcounts, 
+                act = se$NK.positive)
+  malplots_dat = tibble(mal_decon = se$CARD_decon_mean_Melanocytic_cells, 
+                mal_score = se$melanocytes.malignant.cells_logcounts, 
+                act = se$TUMOR.positive)
+  scoreplots = align_plots(
+    p2_scoreplot(se, "CARD_decon_mean_Melanocytic_cells", limits = c(0., NA), 
+                 crop_area = default_plot_focus, pt.size = base_pt_size,
+                 scalename = "Cell Type\nProportion", "Melanoma cells deconvolution"),
+    p2_scoreplot(se, "CARD_decon_mean_T/NK_cells", limits = c(0., NA), 
+                 crop_area = default_plot_focus, pt.size = base_pt_size,
+                 scalename = "Cell Type\nProportion", title = "T/NK deconvolution"),
+    p2_scoreplot(se, "melanocytes.malignant.cells_logcounts", limits = c(0., plotmax_Mel), 
+                 crop_area = default_plot_focus, pt.size = base_pt_size,
+                 scalename = "Module\nScore", title = "Melanoma cells score"),
+    p2_scoreplot(se, "T.cells_logcounts", limits = c(0., plotmax_T), 
+                 crop_area = default_plot_focus, pt.size = base_pt_size,
+                 scalename = "Module\nScore", title = "T cells score"),
+    p2_scoreplot(se, "NK.cells_logcounts", limits = c(0., plotmax_T), 
+                 crop_area = default_plot_focus, pt.size = base_pt_size,
+                 scalename = "Module\nScore", title = "NK cells score")
+    )
+
+  scatterplots = align_patches(
+    ggplot(malplots_dat, aes(mal_score, mal_decon, color = act)) + 
+        geom_hline(yintercept = 0.1, colour = "black", linewidth = 0.5) +
+        geom_vline(xintercept = Misc(se, "mal.model")$mixture.model.cutoff, colour = "black", linewidth = 0.5) +
+        geom_point(size = 0.2) + 
+        scale_color_manual(values = c("False" = "grey", "True" = "#AF4030"), guide = "none") +
+        mytheme_grid(base_size = 5) + 
+        theme(axis.title = element_text(size = unit(7, "pt"), margin = margin(2,2,2,2,"pt")),
+              axis.text = element_text(size = unit(6, "pt"))) +
+        coord_cartesian(xlim = malscore_range, 
+                        ylim = c(0., deconv_range_max), 
+                        expand = F) +
+        ylab("Deconv. melanoma content") +
+        xlab("Melanoma module score"),
+    ggplot(tplots_dat, aes(t_score, tnk_decon, color = act)) + 
+        geom_hline(yintercept = 0.1, colour = "black", linewidth = 0.5) +
+        geom_vline(xintercept = Misc(se, "t.model")$fdr.corrected.background.cutoff, 
+                   colour = "black", linewidth = 0.5) +
+        geom_point(size = 0.2) + 
+        scale_color_manual(values = c("False" = "grey", "True" = "#40AF40"), guide = "none") +
+        mytheme_grid(base_size = 5) + 
+        theme(axis.title = element_text(size = unit(7, "pt"), margin = margin(2,2,2,2,"pt")),
+              axis.text = element_text(size = unit(6, "pt"))) +
+        coord_cartesian(xlim = tscore_range, ylim = c(0., deconv_range_max), expand = F) +
+        ylab("Deconv. T/NK content") +
+        xlab("T cell module score"),
+    ggplot(tplots_dat, aes(t_score, tnk_decon, color = act)) + 
+        geom_hline(yintercept = 0.1, colour = "black", linewidth = 0.5) +
+        geom_vline(xintercept = Misc(se, "nk.model")$fdr.corrected.background.cutoff, 
+                   colour = "black", linewidth = 0.5) +
+        geom_point(size = 0.2) + 
+        scale_color_manual(values = c("False" = "grey", "True" = "#40AF40"), guide = "none") +
+        mytheme_grid(base_size = 5) + 
+        theme(axis.title = element_text(size = unit(7, "pt"), margin = margin(2,2,2,2,"pt")),
+              axis.text = element_text(size = unit(6, "pt"))) +
+        coord_cartesian(xlim = tscore_range, ylim = c(0., deconv_range_max), expand = F) +
+        ylab("Deconv. T/NK content") +
+        xlab("NK cell module score")
+  )
+  
+  borderregionplot = feature_overlay_discrete(se, pt.size = base_pt_size, pt.stroke = 0.1,
+                                 crop_area = default_plot_focus,
+                                 features = "active.region.annotated",
+                                 titles = "",
+                                 colors = c("Double-negative spots" = "black",
+                                            "Interfacing tumor-positive spots" = "red",
+                                            "Interfacing immune-positive spots" = "green",
+                                            "Non-interfacing tumor-positive spots" = "darkred",
+                                            "Non-interfacing immune-positive spots" = "darkgreen",
+                                            "Interfacing double-positive spots" = "yellow"),
+                                 pt_alpha = ifelse(se[["active.region"]]=="Background", 0., 1.),
+                                 add_scalebar = T, scalebar_position = c(0.05, 0.85),
+                                 scalebar_height = 0.18, scalebar_gg = p2scalebar) &
+    theme(legend.title = element_blank(), 
+          legend.position = "right",
+          legend.key.height = unit(10, "pt"), 
+          legend.box.spacing = unit(4, "pt"),
+          legend.text = element_text(size = unit(5.5, "pt")), 
+          plot.margin = margin(1,1,1,1, "pt"),
+          plot.caption = element_blank()) &
+    guides(fill=guide_legend(ncol = 1, override.aes = list(size = 2.5)))
+  borderregionplot[[1]][[1]] = borderregionplot[[1]][[1]] & labs(caption="Resulting spot choice for LR-analysis")
+  borderregionplot[[1]][[2]] = borderregionplot[[1]][[2]] + theme(panel.border = element_blank())
+  borderregionplot[[1]][[3]] = borderregionplot[[1]][[3]] + theme(panel.border = element_blank())
+  
+  return(list(
+    scoreplots = scoreplots,
+    scatterplots = scatterplots,
+    borderregionplot = borderregionplot
+  ))
+}
+```
+
+### POZNIAK 1
+
+```{r poz1-scores, fig.width=1.41, fig.height=1.32, fig.show='hold', echo=F, eval=T, dpi=300}
+poz1plots = gen_pozniak_plots("POZNIAK1")
+for (p in poz1plots$scoreplots) {plot(p)}
+```
+
+```{r poz1-scatters, fig.width=1.86, fig.height=1.64, fig.show='hold', echo=F, eval=T, dpi=300}
+for (p in poz1plots$scatterplots) {plot(p)}
+```
+
+```{r poz1-border, fig.width=2.8, fig.height=1.55, fig.show='hold', echo=F, eval=T, dpi=300}
+plot(poz1plots$borderregionplot)
+```
+
+### POZNIAK 2
+
+```{r poz2-scores, fig.width=1.41, fig.height=1.32, fig.show='hold', echo=F, eval=T, dpi=300}
+poz2plots = gen_pozniak_plots("POZNIAK2")
+for (p in poz2plots$scoreplots) {plot(p)}
+```
+
+```{r poz2-scatters, fig.width=1.86, fig.height=1.64, fig.show='hold', echo=F, eval=T, dpi=300}
+for (p in poz2plots$scatterplots) {plot(p)}
+```
+
+```{r poz2-border, fig.width=2.8, fig.height=1.55, fig.show='hold', echo=F, eval=T, dpi=300}
+plot(poz2plots$borderregionplot)
+```
+
+### POZNIAK 3
+
+```{r poz3-scores, fig.width=1.41, fig.height=1.32, fig.show='hold', echo=F, eval=T, dpi=300}
+poz3plots = gen_pozniak_plots("POZNIAK3")
+for (p in poz3plots$scoreplots) {plot(p)}
+```
+
+```{r poz3-scatters, fig.width=1.86, fig.height=1.64, fig.show='hold', echo=F, eval=T, dpi=300}
+for (p in poz3plots$scatterplots) {plot(p)}
+```
+
+```{r poz3-border, fig.width=2.8, fig.height=1.55, fig.show='hold', echo=F, eval=T, dpi=300}
+plot(poz3plots$borderregionplot)
+```
+
+### POZNIAK 4
+
+```{r poz4-scores, fig.width=1.41, fig.height=1.32, fig.show='hold', echo=F, eval=T, dpi=300}
+poz4plots = gen_pozniak_plots("POZNIAK4")
+for (p in poz4plots$scoreplots) {plot(p)}
+```
+
+```{r poz4-scatters, fig.width=1.86, fig.height=1.64, fig.show='hold', echo=F, eval=T, dpi=300}
+for (p in poz4plots$scatterplots) {plot(p)}
+```
+
+```{r poz4-border, fig.width=2.8, fig.height=1.55, fig.show='hold', echo=F, eval=T, dpi=300}
+plot(poz4plots$borderregionplot)
+```
+
+### POZNIAK 5
+
+```{r poz5-scores, fig.width=1.41, fig.height=1.32, fig.show='hold', echo=F, eval=T, dpi=300}
+poz5plots = gen_pozniak_plots("POZNIAK5")
+for (p in poz5plots$scoreplots) {plot(p)}
+```
+
+```{r poz5-scatters, fig.width=1.86, fig.height=1.64, fig.show='hold', echo=F, eval=T, dpi=300}
+for (p in poz5plots$scatterplots) {plot(p)}
+```
+
+```{r poz5-border, fig.width=2.8, fig.height=1.55, fig.show='hold', echo=F, eval=T, dpi=300}
+plot(poz5plots$borderregionplot)
+```
+
+### POZNIAK 6
+
+```{r poz6-scores, fig.width=1.41, fig.height=1.32, fig.show='hold', echo=F, eval=T, dpi=300}
+poz6plots = gen_pozniak_plots("POZNIAK6")
+for (p in poz6plots$scoreplots) {plot(p)}
+```
+
+```{r poz6-scatters, fig.width=1.86, fig.height=1.64, fig.show='hold', echo=F, eval=T, dpi=300}
+for (p in poz6plots$scatterplots) {plot(p)}
+```
+
+```{r poz6-border, fig.width=2.8, fig.height=1.55, fig.show='hold', echo=F, eval=T, dpi=300}
+plot(poz6plots$borderregionplot)
+```
+
+```{r dummy, eval=F}
+
+
+# right side, PM2
+# tscore2 = se2$T.cells_logcounts
+# nkscore2 = se2$NK.cells_logcounts
+# tnkdecon2 = se2$`CARD_decon_mean_T/NK_cells`
+# malscore2 = se2$melanocytes.malignant.cells_logcounts
+# maldecon2 = se2$CARD_decon_mean_Melanocytic_cells
+# tpos2 = se2$T.positive
+# nkpos2 = se2$NK.positive
+# malpos2 = se2$TUMOR.positive
+# 
+# tmodel2 = Misc(se2, "t.model")
+# #tmodel2 = list(fdr.corrected.background.cutoff = 0.05, background.distr.model = list(location = 0., scale = 0.02))
+# nkmodel2 = Misc(se2, "nk.model")
+# malmodel2 = Misc(se2, "mal.model")
+# tscore_range2 = 1.1*range(tscore2)
+# malscore_range2 = pmax(1.1*range(malscore2), c(-0.5, 0.5)) # not lower than -0.5 
+# deconv_range_max = max(c(tnkdecon2, maldecon2))+0.01
+# tplots_dat2 = tibble(tnk_decon = tnkdecon2, 
+#               t_score = tscore2, 
+#               act = tpos2)
+# nkplots_dat2 = tibble(tnk_decon = tnkdecon2, 
+#               nk_score = nkscore2, 
+#               act = nkpos2)
+# malplots_dat2 = tibble(mal_decon = maldecon2, 
+#               mal_score = malscore2, 
+#               act = malpos2)
+# 
+# malmodel_bg_dens = compute_tumor_bg_dens(malmodel2, malscore_range2)
+# 
+# p3A2rtop = ggplot(malplots_dat2, aes(mal_score, mal_decon, color = act)) + 
+#   geom_hline(yintercept = 0.2, colour = "black", linewidth = 1) +
+#   geom_vline(xintercept = malmodel2$mixture.model.cutoff, colour = "black", linewidth = 1) +
+#   geom_point() + 
+#   scale_color_manual(values = c("False" = "grey", "True" = "#AF4030"), guide = "none") +
+#   mytheme_grid(base_size = 5) + 
+#   coord_cartesian(xlim = malscore_range2, 
+#                   ylim = c(0., deconv_range_max), 
+#                   expand = F) +
+#   ylab("Deconvolution melanoma cell content") +
+#   scale_y_continuous(position = "right") +
+#   xlab("Melanoma module score")
+#   
+# p3A2rbot = ggplot(malplots_dat2, aes(mal_score)) + 
+#   geom_histogram(mapping = aes(y = after_stat(density)),bins = 70, fill = "white", colour = "grey30") + 
+#   geom_vline(xintercept = malmodel2$mixture.model.cutoff, colour = "black", linewidth = 1) +
+#   geom_line(data = malmodel_bg_dens, mapping = aes(x,bg_dens), color = "#708070", linewidth = 1.2) + 
+#   geom_line(data = malmodel_bg_dens, mapping = aes(x,tumor_dens), color = "#AF4030", linewidth = 1.2) + 
+#   mytheme_grid(base_size = 5) + 
+#   coord_cartesian(xlim = malscore_range2, 
+#                   expand = F) +
+#   xlab("Melanoma module score") + 
+#   ylab("Density")
+# 
+# p3A2mtop = ggplot(tplots_dat2, aes(t_score, tnk_decon, color = act)) + 
+#   geom_hline(yintercept = 0.1, colour = "black", linewidth = 1) +
+#   geom_vline(xintercept = tmodel2$fdr.corrected.background.cutoff, colour = "black", linewidth = 1) +
+#   geom_point() + 
+#   scale_color_manual(values = c("False" = "grey", "True" = "#40AF40"), guide = "none") +
+#   mytheme_grid(base_size = 5) + 
+#   coord_cartesian(xlim = tscore_range2, 
+#                   ylim = c(0., deconv_range_max), 
+#                   expand = F) +
+#   ylab("Deconvolution T/NK cell content") +
+#   scale_y_continuous(position = "right") +
+#   xlab("T cell module score")
+# 
+# p3A2mbot = ggplot(tplots_dat2, aes(t_score)) + 
+#   geom_histogram(mapping = aes(y = after_stat(density)),bins = 70, fill = "white", colour = "grey30") + 
+#   geom_vline(xintercept = tmodel2$fdr.corrected.background.cutoff, colour = "black", linewidth = 1) +
+#   geom_line(data = tibble(x = seq(tmodel2$background.distr.model$location-8*tmodel2$background.distr.model$scale,
+#                                   tmodel2$background.distr.model$location+8*tmodel2$background.distr.model$scale, 
+#                                   len = 150),
+#                           dens = dnorm(
+#                             x=seq(tmodel2$background.distr.model$location-8*tmodel2$background.distr.model$scale,
+#                                   tmodel2$background.distr.model$location+8*tmodel2$background.distr.model$scale, 
+#                                   len = 150),
+#                             mean = tmodel2$background.distr.model$location,
+#                             sd = tmodel2$background.distr.model$scale)),
+#             aes(x,dens), color = "#40AF40", linewidth = 1.2) + # draw background distribution
+#   mytheme_grid(base_size = 5) + 
+#   coord_cartesian(xlim = tscore_range2, 
+#                   expand = F) +
+#   xlab("T cell module score") + 
+#   ylab(" Density ")
+# 
+# p3A2ltop = ggplot(nkplots_dat2, aes(nk_score, tnk_decon, color = act)) + 
+#   geom_hline(yintercept = 0.1, colour = "black", linewidth = 1) +
+#   geom_vline(xintercept = nkmodel2$fdr.corrected.background.cutoff, colour = "black", linewidth = 1) +
+#   geom_point() + 
+#   scale_color_manual(values = c("False" = "grey", "True" = "#40AF40"), guide = "none") +
+#   mytheme_grid(base_size = 5) + 
+#   coord_cartesian(xlim = 1.1*range(nkscore2), 
+#                   ylim = c(0., deconv_range_max), 
+#                   expand = F) +
+#   ylab(" Deconvolution T/NK cell content ") +
+#   xlab("NK cell module score")
+# 
+# p3A2lbot = feature_overlay_discrete(se2, pt.size = base_pt_size2*0.5, crop_area = default_plot_focus2,
+#                               features = "active.region.annotated", 
+#                               titles = "", 
+#                               colors = c("Double-negative spots" = "black",
+#                                   "Interfacing tumor-positive spots" = "red",
+#                                   "Interfacing immune-positive spots" = "green",
+#                                   "Non-interfacing tumor-positive spots" = "darkred",
+#                                   "Non-interfacing immune-positive spots" = "darkgreen",
+#                                   "Interfacing double-positive spots" = "yellow"), 
+#                               pt_alpha = ifelse(se2[["active.region"]]=="Background", 0., 1.),
+#                               add_scalebar = T, scalebar_position = c(0.05, 0.82), 
+#                               scalebar_height = 0.15, scalebar_gg = p2scalebar) &
+#   theme(legend.title = element_blank(), legend.position = "none",
+#         plot.title = element_blank(), plot.caption = element_text(hjust = 0.5))
+# p3A2lbot[[1]][[1]] = p3A2lbot[[1]][[1]] & labs(caption="Resulting spot choice for LR-analysis")
+# p3A2lbot[[1]][[2]] = p3A2lbot[[1]][[2]] + theme(panel.border = element_blank())
+# p3A2lbot[[1]][[3]] = p3A2lbot[[1]][[3]] + theme(panel.border = element_blank())
+# 
+# p3A2 = wrap_elements(wrap_plots(A=p3A2ltop, B=p3A2mtop, C=p3A2rtop,
+#            D=p3A2mbot, E=p3A2rbot, 
+#            axes = "collect", design = "ABC
+#                                        #DE")) +
+#   inset_element(p3A2lbot, align_to = "full",
+#                 left = 0.01, top = 0.48, right = 0.35, bottom = 0.1)
+# 
+# p3A = plot_grid(p3A1, NULL, 
+#           plot_grid(NULL, p3Alegend, NULL, ncol = 1, rel_heights = c(1,1, 0.1)), p3A2, 
+#           nrow = 1, rel_widths = c(9,0.13,2,9))
+
+
+# 
+# ora_dotplot = function(.tops = 10, .by = c("richFactor", "p.adjust"), cluster_order = NULL, base_size = 8, sizerange = c(2,6), show.tops.legend = F) {
+#   .by <- match.arg(.by)
+#   
+#   res = res.cP.cc.go.sim@compareClusterResult
+#   res = mutate(res, totalGenes = as.numeric(sub("\\d+/", "", GeneRatio)),
+#                richFactor = Count / as.numeric(sub("/\\d+", "", BgRatio)))
+#   # at least 5 genes or 10% (but never less than 2) of the positive marker genes of a cluster must 
+#   # belong to a term for it to be included
+#   res = res[(res$Count >= pmin(5, pmax(2, res$totalGenes*0.1))), ]
+#   res$geneID = NULL
+#   res$ID_CL = paste0(res$ID, "_", res$Cluster)
+#   
+#   # New line for long Description strings
+#   # for (i in 1:nrow(res)) {
+#   #     res$Description[i] = paste(base::strwrap(res$Description[i], 75), collapse="\n")
+#   # }
+#   
+#   res.cp = res
+#   
+#   tops.l = lapply(split(res, res$Cluster), function(x){
+#     if (.by == "richFactor") {
+#       x = x[order(x$richFactor, decreasing = T), ]  # sort by enrichment factor
+#     } else {
+#       x = x[order(x$p.adjust, decreasing = F), ]    # sort by adjusted p value
+#     }
+#     x = head(x, .tops)
+#     x
+#   })
+#   
+#   tops.l = tops.l[sapply(tops.l, function(x) dim(x)[1]) > 0]
+#   tops = as.data.frame(data.table::rbindlist(tops.l))
+#   tops$ID_CL = paste0(tops$ID, "_", tops$Cluster)
+#   res.cp = subset(res.cp, ID %in% tops$ID)
+#   
+#   lvls = tops.l[[1]]$Description
+#   lvls = c(lvls, setdiff(res.cp$Description, lvls))
+#   res.cp$Description = factor(res.cp$Description, levels = rev(lvls))
+#   res.cp$Cluster = factor(res.cp$Cluster, levels = unique(naturalsort::naturalsort(res.cp$Cluster)))
+#   
+#   res.cp$TOPS = res.cp$ID_CL %in% tops$ID_CL
+#   
+#   
+#   ora = ggplot(res.cp, aes(x = Cluster, y = Description)) +
+#     geom_point(aes(fill = p.adjust, size = richFactor), pch=21, stroke=.3) +
+#     geom_point(aes(colour = TOPS, size = richFactor), pch=21, stroke=.5, show.legend = show.tops.legend) +
+#     scale_size(range = sizerange) +
+#     mytheme_grid(base_size = base_size) +
+#     theme(
+#       panel.grid.minor = element_blank(),
+#       panel.grid.major.x = element_blank(),
+#       axis.ticks = element_blank(),
+#       legend.position = "right"
+#     ) +
+#     guides(fill = guide_colorbar(
+#       title.position = 'top', title.hjust = 0, barwidth = unit(.5, 'lines'), barheight = unit(6, 'lines'),
+#       title = "Adjusted\np-value", order = 3)
+#     ) + 
+#     guides(size = guide_legend(
+#       ncol = 1, override.aes =, title.hjust = .5, title.position = "top",
+#       title = "Rich factor", order = 1)
+#     ) +
+#     guides(colour = guide_legend(
+#       ncol = 1, override.aes =, title.hjust = .5, title.position = "top",
+#       title = "Tops", order = 2)
+#     ) +
+#     # scale_fill_scico(palette = 'batlow', direction = -1, end = .7)  +
+#     scale_fill_scico(palette = 'bilbao', begin = .2, end = .8, direction = -1) +
+#     scale_colour_manual(values = c("#555555", "#44AA99")) +
+#     xlab("Cluster") + ylab(NULL)  
+# 
+#   if (!is.null(cluster_order)){
+#     ora = ora + lims(x = cluster_order)
+#   }
+#     
+#   ora
+# }
+
+
+```
