@@ -1,10 +1,17 @@
-# Description
+# Main analysis in R
 
-# Reproduction
+## Description
 
-For a full reproduction, follow the steps outlined in `Interactive_analysis.R`. 
-Note that you will need to download all input files and enter their locations 
-into the `assets/manifest.yaml` file.
+This folder contains all the main analysis code for reproducing the results and figures of 
+Visium data, Visium HD Ligand-Receptor plots and survival analysis from Grosse et al. 2026.
+The code was developed in a RStudio Singularity container and you can therefore open it as
+an RStudio project, but all results should be replicable without this.
+
+## Reproduction
+
+For a full reproduction clone the repository, then follow the steps outlined 
+in `Interactive_analysis.R`. Note that you will need to download all input 
+files and enter their locations into the `assets/manifest.yaml` file.
 
 If you only want to regenerate the final pictured from existing intermediate data,
 enter the path information in the manifest run only the library calls at the top 
@@ -13,10 +20,10 @@ and the lines to build report pages 15 an 16 at the bottom of `Interactive_analy
 Note that in any case, you will likely need to install `renv` and restore all depedencies
 when you first open an R session in this project. Usually, this should be no harder 
 than calling `renv::restore()` from where the `renv.lock` file is. In case of problems 
-please consult the `renv` documantation ()[https://rstudio.github.io/renv/articles/renv.html]
+please consult the `renv` (documentation)[https://rstudio.github.io/renv/articles/renv.html]
 or open an issue in this repo.
 
-# Repository Layout
+## Repository Layout
 
 ```         
 2025_grosse_et_al/
