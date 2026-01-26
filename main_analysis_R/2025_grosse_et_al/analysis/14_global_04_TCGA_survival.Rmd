@@ -1,0 +1,654 @@
+---
+title: "TCGA/TCIA survival analyses etc."
+output:
+  workflowr::wflow_html:
+    code_folding: hide
+    fig_caption: yes
+    number_sections: yes
+    pandoc_args: []
+    self_contained: yes
+    smart: yes
+    toc: yes
+    toc_depth: 5
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+Author: Florian Große (Last updated: `r Sys.Date()`)
+
+```{r libs-and-functions, echo = F, message = FALSE, warning=FALSE}
+library("Cairo")
+library("ggplot2")
+library("cowplot")
+library("scico")
+library("tidyverse")
+library("naturalsort")
+library("reshape2")
+library("yaml")
+library("survival")
+library("survminer")
+library("OmnipathR")
+library("car")
+library("stringr")
+library("colorspace")
+library("scales")
+
+library("recount")
+library("GenomicRanges")
+library("SummarizedExperiment")
+library("HDF5Array")
+
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# Functions
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+source("code/helper/Rmarkdown-style.R")
+source("code/helper/aggregated_LRI_helper.R")
+theme_set(mytheme(base_size = 7))
+
+standardize = function(z) {
+  rowmean = apply(z, 1, mean, na.rm=TRUE)
+  rowsd = apply(z, 1, sd, na.rm=TRUE)
+  rv = sweep(z, 1, rowmean,"-")
+  rv = sweep(rv, 1, rowsd, "/")
+  return(rv)
+}
+
+
+```
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE, cache=F}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  error = FALSE,
+  message = FALSE,
+  cache = FALSE,
+  warning = FALSE,
+  results = TRUE,
+  fig.align = 'center',
+  fig.show = 'hold',
+  autodep = TRUE,
+  dpi = 96,
+  dev = c('CairoPNG') # alternative: dev = c('png') type = 'cairo'
+)
+```
+
+# Basic Cohort Stats
+
+## TCGA/TCIA
+
+Basic survival curve without stratification:
+
+```{r fetch-study-load-objects, echo=F, fig.width=8, fig.asp=0.6}
+# filter to cohort
+TCGA.se = fetch_TCGA()
+TCGA.se = TCGA.se[, TCGA.se$gdc_cases.project.project_id == "TCGA-SKCM"]
+
+# removes "additional metastatic" normal tissue samples
+sites = c("Primary Tumor", "Metastatic")
+TCGA.se = TCGA.se[, TCGA.se$gdc_cases.samples.sample_type %in% sites]
+colData(TCGA.se) = droplevels(colData(TCGA.se))
+
+# removes trailing version numbers from ENSEMBL identifiers
+rownames(TCGA.se) = gsub("\\..+", "", rownames(TCGA.se))
+
+# load TCIA data 
+TCIA.fractions= read_tsv("./assets/TCIA-CellTypeFractionsData_SKCM_only_march2024.tsv", col_names = c("Patient", "Disease", "Celltype", "quanTIseq_lsei_TIL10", "Cibersort_LM22"))
+
+# should be good to go, but as sanity check retain only SKCM data
+TCIA.fractions = TCIA.fractions %>%
+  filter(Disease == "SKCM") %>%
+  distinct()
+
+TCIA.quanTIseq = transmute(TCIA.fractions, 
+                           Patient = Patient, 
+                           Celltype = Celltype,
+                           Fraction = quanTIseq_lsei_TIL10) %>%
+  pivot_wider(names_from = Celltype, values_from = Fraction) 
+
+pat = TCIA.quanTIseq$Patient
+TCIA.quanTIseq = TCIA.quanTIseq %>%
+  select(!Patient) %>%
+  rename_with(~ paste0("quanTIseq_", make.names(.x))) %>%
+  as.data.frame()
+rownames(TCIA.quanTIseq) = pat
+
+TCIA.Cibersort = transmute(TCIA.fractions, 
+                           Patient = Patient, 
+                           Celltype = Celltype,
+                           Fraction = Cibersort_LM22) %>%
+  pivot_wider(names_from = Celltype, values_from = Fraction)
+
+pat = TCIA.Cibersort$Patient
+TCIA.Cibersort = TCIA.Cibersort %>%
+  select(!Patient) %>%
+  rename_with(~ paste0("cibersort_", make.names(.x))) %>%
+  as.data.frame()
+rownames(TCIA.Cibersort) = pat
+
+TCIA.Cibersort = TCIA.Cibersort[,!(apply(is.na(TCIA.Cibersort), FUN = all, MARGIN = 2))]
+
+# format and filter TCGA data, add TCIA data to TCGA pheno data
+pheno = data.frame(colData(TCGA.se))
+organ = unique(TCGA.se$gdc_cases.project.primary_site)
+
+# remove columns containing only NAs
+pheno =  pheno[, which(apply(pheno, 2, function(x) !all(is.na(x))))]
+
+exprs.tpm = data.frame(assays(TCGA.se)$tpm, check.names = F)
+exprs.mat = log1p(exprs.tpm)
+var.nonzero = apply(exprs.mat, 1, function(x) { stats::var(x) > 0.0001 })
+exprs.mat = exprs.mat[var.nonzero,]
+exprs.mat.std = standardize(exprs.mat)
+
+# available sample types (normal, primary, mts, etc)
+print("TCGA data with matched TCIA celltype fractions: ")
+print(table(pheno$gdc_cases.samples.sample_type))
+
+# looking for cases with duplicated id
+# dup = unique(pheno$gdc_cases.submitter_id[duplicated(pheno$gdc_cases.submitter_id)])
+# table(pheno$gdc_cases.submitter_id[pheno$gdc_cases.submitter_id %in% dup] )
+# 2 duplicated entries, each with 1 primary tumor and 1 metastasis
+# we could drop those 4 cases or keep them, since they are not really contradictory
+
+sampleIDs = rownames(pheno)
+exprs.mat = exprs.mat[, colnames(exprs.mat) %in% sampleIDs]
+exprs.mat.std = exprs.mat.std[, colnames(exprs.mat.std) %in% sampleIDs]
+exprs.tpm = exprs.tpm[, colnames(exprs.tpm) %in% sampleIDs]
+# Consistency check: Expression colnames are in the same order as pheno rownames
+stopifnot(identical(rownames(pheno), colnames(exprs.mat)))
+stopifnot(identical(rownames(pheno), colnames(exprs.tpm)))
+
+# Combining time to event variables for surv_fu_days:
+# - Time to death is in $gdc_cases.diagnoses.days_to_death
+# - Death is indicated by non NA in $gdc_cases.diagnoses.days_to_death
+#   (over $gdc_cases.diagnoses.vital_status, which contains 2 errors)
+# - Follow up time is in $gdc_cases.diagnoses.days_to_last_follow_up
+# - Negative entries in $gdc_cases.diagnoses.days_to_last_follow_up have been 
+#   explained by the GDC Helpdesk in this issue: https://github.com/BioinformaticsFMRP/TCGAbiolinks/issues/324 
+# 
+# "[...] For the negative follow up dates, this can be caused by the pathology 
+# report being made at a secondary institution that does the surgery, even 
+# though the patient was diagnosed at a local hospital. The larger 
+# institution/center eventually reports back the pathologic findings from the 
+# surgery, but they never receive follow-up information about the patient. Thus, 
+# the days to diagnosis would have been the date the pathology report was signed 
+# out, which is always day 0, but the last time the patient was seen relative to 
+# that date could have been days or weeks prior to that report being signed out. 
+# [...]"
+# 
+# surv_fu_days captures the time to event, therefore
+# - DoD is indicated by non-NA value of $gdc_cases.diagnoses.days_to_death
+# - time to event or censoring is the time to DoD if available and time to
+#   last follow-up else. Negative or zero entries can then be discarded, since
+#   they don't give any information about the survival/death of the patient 
+
+pheno = cbind(pheno, 
+              surv_fu_days = coalesce(pheno$gdc_cases.diagnoses.days_to_death,
+                                      pheno$gdc_cases.diagnoses.days_to_last_follow_up),
+              surv_deceased = !is.na(pheno$gdc_cases.diagnoses.days_to_death))
+pheno$surv_fu_days[pheno$surv_fu_days <= 0] = NA # Changing uninformative time to event to "NA"
+
+# sanity check 
+stopifnot(identical(rownames(pheno), colnames(exprs.mat)))
+
+which_not_na = which(!is.na(pheno$surv_fu_days))
+pheno = pheno[which_not_na, ]
+exprs.mat = exprs.mat[ ,which_not_na]
+exprs.mat.std = exprs.mat.std[ ,which_not_na]
+exprs.tpm = exprs.tpm[, which_not_na]
+
+#sanity check
+stopifnot(identical(rownames(pheno), colnames(exprs.mat)))
+stopifnot(identical(rownames(pheno), colnames(exprs.tpm)))
+
+# add TCIA Cybersort data
+pat = pheno$cgc_case_id
+pheno = cbind(pheno, TCIA.Cibersort[pat,])
+
+# add TCIA quanTIseq data
+pheno = cbind(pheno, TCIA.quanTIseq[pat,])
+```
+
+Taking only the CD8 T cell content (estimated via quanTIseq), a high level of 
+lymphocytes is associated with a higher survival probability.
+
+For other celltypes, this association is less strong:
+
+```{r celltypes-median-strat-tcga, echo=F, fig.width=8, fig.asp=0.6, eval=T}
+plt_dat = pheno %>%
+  mutate(surv_fu_years = surv_fu_days/365,
+         type = gdc_cases.samples.sample_type,
+         ptprc = unlist(exprs.mat["ENSG00000081237",]),
+         lgals1 = unlist(exprs.mat["ENSG00000100097",]),
+         B_higher_than_median = quanTIseq_B.cells > median(quanTIseq_B.cells, na.rm = T),
+         CD8_T_higher_than_median = quanTIseq_CD8.T.cells > median(quanTIseq_CD8.T.cells, na.rm = T),
+         CD4_T_higher_than_median = quanTIseq_CD4.T.cells > median(quanTIseq_CD4.T.cells, na.rm = T),
+         NK_higher_than_median = quanTIseq_Natural.killer.cells > median(quanTIseq_Natural.killer.cells, na.rm = T),
+         Treg_higher_than_median = quanTIseq_Regulatory.T.cells > median(quanTIseq_Regulatory.T.cells, na.rm = T),
+        quanTIseq_TNK_sum = quanTIseq_CD8.T.cells + quanTIseq_CD4.T.cells + quanTIseq_Natural.killer.cells + quanTIseq_Regulatory.T.cells,
+        quanTIseq_lympho_sum = quanTIseq_TNK_sum + quanTIseq_B.cells,
+        total_lympho_higher_than_median = quanTIseq_lympho_sum > median(quanTIseq_lympho_sum, na.rm = T),
+        CD8_T_higher_than_CD4_T = ifelse(quanTIseq_CD8.T.cells==quanTIseq_CD4.T.cells, NA, quanTIseq_CD8.T.cells>quanTIseq_CD4.T.cells),
+        log_CD4_Treg_over_CD8_B = log2((quanTIseq_CD4.T.cells+quanTIseq_Regulatory.T.cells)/(quanTIseq_B.cells+quanTIseq_CD8.T.cells)))
+
+survtest = survfit(Surv(surv_fu_years, surv_deceased) ~ CD8_T_higher_than_median, data = plt_dat)
+survminer::ggsurvplot(survtest, conf.int = T, pval = T, pval.method = T, log.rank.weights = "S1")
+
+# p1 = ggsurvplot(survfit(Surv(surv_fu_years, surv_deceased) ~ CD8_T_higher_than_median, data = plt_dat, 
+#                         subset = gdc_cases.samples.sample_type=="Primary Tumor"), conf.int = T, pval = T, pval.method = T) +
+#   ggtitle("Primary Tumor Cases")
+# p2 = ggsurvplot(survfit(Surv(surv_fu_years, surv_deceased) ~ CD8_T_higher_than_median, data = plt_dat, 
+#                         subset = gdc_cases.samples.sample_type=="Metastatic"), conf.int = T, pval = T, pval.method = T) +
+#   ggtitle("Metastasis Cases")
+# arrange_ggsurvplots(list(p1, p2))
+
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~ CD8_T_higher_than_median, data = plt_dat), 
+                 plt_dat, facet.by = "gdc_cases.samples.sample_type", log.rank.weights = "S1",
+                 conf.int = T, pval = T, pval.method = T, pval.coord = c(0,0), pval.method.coord = c(0,0.04)) +
+  labs(x = "Time (years)", fill = "CD8_T higher than median", colour = "CD8_T higher than median")
+
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~ CD4_T_higher_than_median, data = plt_dat), 
+                 plt_dat, facet.by = "gdc_cases.samples.sample_type", log.rank.weights = "S1",
+                 conf.int = T, pval = T, pval.method = T, pval.coord = c(0,0), pval.method.coord = c(0,0.04)) +
+  labs(x = "Time (years)", fill = "CD4_T higher than median", colour = "CD4_T higher than median")
+
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~ NK_higher_than_median, data = plt_dat), 
+                 plt_dat, facet.by = "gdc_cases.samples.sample_type", log.rank.weights = "S1",
+                 conf.int = T, pval = T, pval.method = T, pval.coord = c(0,0), pval.method.coord = c(0,0.04)) +
+  labs(x = "Time (years)", fill = "NK higher than median", colour = "NK higher than median")
+
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~ Treg_higher_than_median, data = plt_dat), 
+                 plt_dat, facet.by = "gdc_cases.samples.sample_type", log.rank.weights = "S1",
+                 conf.int = T, pval = T, pval.method = T, pval.coord = c(0,0), pval.method.coord = c(0,0.04)) +
+  labs(x = "Time (years)", fill = "Treg higher than median", colour = "Treg higher than median")
+
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~ B_higher_than_median, data = plt_dat), 
+                 plt_dat, facet.by = "gdc_cases.samples.sample_type", log.rank.weights = "S1",
+                 conf.int = T, pval = T, pval.method = T, pval.coord = c(0,0), pval.method.coord = c(0,0.04)) +
+  labs(x = "Time (years)", fill = "B higher than median", colour = "B higher than median")
+
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~ total_lympho_higher_than_median, data = plt_dat), 
+                 plt_dat, facet.by = "gdc_cases.samples.sample_type", log.rank.weights = "S1",
+                 conf.int = T, pval = T, pval.method = T, pval.coord = c(0,0), pval.method.coord = c(0,0.04)) +
+  labs(x = "Time (years)", fill = "Total lymphocytes higher than median", colour = "Total lymphocytes higher than median")
+
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~ CD8_T_higher_than_CD4_T, data = plt_dat), 
+                 plt_dat, facet.by = "gdc_cases.samples.sample_type", log.rank.weights = "S1",
+                 conf.int = T, pval = T, pval.method = T, pval.coord = c(0,0), pval.method.coord = c(0,0.04)) +
+  labs(x = "Time (years)", fill = "Higher CD8 T than CD4 T content (w/o ties)", colour = "Higher CD8 T than CD4 T content (w/o ties)")
+
+# metastatic samples only, see if we can get a good subgroup analyses only with total lymphocytes and distribution (CD4+Treg)/(CD8+B) cells
+meta_only = plt_dat %>% filter(type == "Metastatic")
+# cut.ret = surv_cutpoint(meta_only, "surv_fu_years", "surv_deceased", variables = c("quanTIseq_lympho_sum", "log_CD4_Treg_over_CD8_B"))
+# ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~ log_CD4_Treg_over_CD8_B, data = surv_categorize(cut.ret)), conf.int = T, pval = T, pval.method = T, log.rank.weights = "S1", facet.by = "quanTIseq_lympho_sum", data = surv_categorize(cut.ret))
+
+plt_tmp = meta_only %>%
+  mutate(total_lymphcytes_over_6pct = quanTIseq_lympho_sum>=0.06,
+         cytotox_high = ifelse(log_CD4_Treg_over_CD8_B<=1.3, ifelse(log_CD4_Treg_over_CD8_B<=-0.65, "high cytotox", "intermediate"), "low cytotox"))
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~ cytotox_high, data = plt_tmp), conf.int = T, pval = T, pval.method = T, log.rank.weights = "S1", facet.by = "total_lymphcytes_over_6pct", data = plt_tmp)
+
+```
+
+That matches out expectations. 
+
+## Gide et al.
+
+```{r gide-basics, fig.width=8, fig.asp=0.6}
+gide_tpm = readr::read_tsv("../../datasets/SRA_Downloads/gide_et_al_2019_melanoma/merged_output/quanTIseq_gene_tpm.txt")
+gide_celltypes = readr::read_tsv("../../datasets/SRA_Downloads/gide_et_al_2019_melanoma/merged_output/quanTIseq_cell_fractions.txt")
+Gide_meta_final = readr::read_tsv("./data/survival_data/Gide_et_al_metadata.tsv")
+
+gide_pheno = Gide_meta_final %>% 
+  dplyr::rename(Sample = Run) %>%
+  left_join(gide_celltypes, by = "Sample") %>%
+  mutate(surv_os = `Overall Survival (Days)`, 
+         surv_deceased = `Last Followup Status` != "Alive",
+         pretreatment_sample = str_detect(Sample_name, pattern = "PRE"))
+
+gide_expr = data.frame(gide_tpm %>% select(!GENE))
+rownames(gide_expr) = gide_tpm$GENE
+
+gide_pheno$lgals1 = unlist(gide_expr["LGALS1", gide_pheno$Sample])
+gide_pheno$ptprc = unlist(gide_expr["PTPRC", gide_pheno$Sample])
+```
+
+```{r celltypes-median-strat-gide, echo=F, fig.width=8, fig.asp=0.6, eval=T}
+gide_plt_dat = gide_pheno %>%
+  mutate(surv_fu_years = surv_os/365,
+         primary_treatment = ifelse(Treatment %in% c("Ipilimumab + Nivolumab", "Nivolumab"), "Nivolumab", "Pembrolizumab"),
+         secondary_treatment = ifelse(Treatment %in% c("Ipilimumab + Nivolumab", "Ipilimumab + Pembrolizumab"), "Ipilimumab", "None"),
+         B_higher_than_median = B.cells > median(B.cells, na.rm = T),
+         CD8_T_higher_than_median = T.cells.CD8 > median(T.cells.CD8, na.rm = T),
+         CD4_T_higher_than_median = T.cells.CD4 > median(T.cells.CD4, na.rm = T),
+         NK_higher_than_median = NK.cells > median(NK.cells, na.rm = T),
+         Treg_higher_than_median = Tregs > median(Tregs, na.rm = T),
+         TNK_sum = T.cells.CD8 + T.cells.CD4 + NK.cells + Tregs,
+         lympho_sum = TNK_sum + B.cells,
+         total_lympho_higher_than_median = lympho_sum > median(lympho_sum, na.rm = T),
+         CD8_T_higher_than_CD4_T = ifelse(T.cells.CD8==T.cells.CD4, NA, T.cells.CD8>T.cells.CD4),
+         log_CD4_Treg_over_CD8_B = log2((T.cells.CD4+Tregs)/(B.cells+T.cells.CD8))) %>%
+  as.data.frame()
+
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~ CD8_T_higher_than_median, data = gide_plt_dat), 
+                 gide_plt_dat, facet.by = "primary_treatment", log.rank.weights = "S1",
+                 conf.int = T, pval = T, pval.method = T, pval.coord = c(0,0), pval.method.coord = c(0,0.04)) +
+  labs(x = "Time (years)", fill = "CD8_T higher than median", colour = "CD8_T higher than median")
+
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~ CD4_T_higher_than_median, data = gide_plt_dat), 
+                 gide_plt_dat, facet.by = "primary_treatment", log.rank.weights = "S1",
+                 conf.int = T, pval = T, pval.method = T, pval.coord = c(0,0), pval.method.coord = c(0,0.04)) +
+  labs(x = "Time (years)", fill = "CD4_T higher than median", colour = "CD4_T higher than median")
+
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~ NK_higher_than_median, data = gide_plt_dat), 
+                 gide_plt_dat, facet.by = "primary_treatment", log.rank.weights = "S1",
+                 conf.int = T, pval = T, pval.method = T, pval.coord = c(0,0), pval.method.coord = c(0,0.04)) +
+  labs(x = "Time (years)", fill = "NK higher than median", colour = "NK higher than median")
+
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~ Treg_higher_than_median, data = gide_plt_dat), 
+                 gide_plt_dat, facet.by = "primary_treatment", log.rank.weights = "S1",
+                 conf.int = T, pval = T, pval.method = T, pval.coord = c(0,0), pval.method.coord = c(0,0.04)) +
+  labs(x = "Time (years)", fill = "Treg higher than median", colour = "Treg higher than median")
+
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~ B_higher_than_median, data = gide_plt_dat), 
+                 gide_plt_dat, facet.by = "primary_treatment", log.rank.weights = "S1",
+                 conf.int = T, pval = T, pval.method = T, pval.coord = c(0,0), pval.method.coord = c(0,0.04)) +
+  labs(x = "Time (years)", fill = "B higher than median", colour = "B higher than median")
+
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~ total_lympho_higher_than_median, data = gide_plt_dat), 
+                 gide_plt_dat, facet.by = "primary_treatment", log.rank.weights = "S1",
+                 conf.int = T, pval = T, pval.method = T, pval.coord = c(0,0), pval.method.coord = c(0,0.04)) +
+  labs(x = "Time (years)", fill = "Total lymphocytes higher than median", colour = "Total lymphocytes higher than median")
+
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~ CD8_T_higher_than_CD4_T, data = gide_plt_dat), 
+                 gide_plt_dat, facet.by = c("primary_treatment"), log.rank.weights = "S1",
+                 conf.int = T, pval = T, pval.method = T, pval.coord = c(0,0), pval.method.coord = c(0,0.04)) +
+  labs(x = "Time (years)", fill = "Higher CD8 T than CD4 T content (w/o ties)", colour = "Higher CD8 T than CD4 T content (w/o ties)")
+
+gide_plt_tmp = gide_plt_dat %>%
+  mutate(total_lymphcytes_over_6pct = lympho_sum>=0.06,
+         cytotox_high = ifelse(log_CD4_Treg_over_CD8_B<=-0.65, "high cytotox", "low cytotox"))
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~ cytotox_high, data = gide_plt_tmp), conf.int = T, pval = T, pval.method = T, log.rank.weights = "S1", facet.by = "total_lymphcytes_over_6pct", data = gide_plt_tmp)
+
+ggplot(gide_plt_dat, aes(lympho_sum, log_CD4_Treg_over_CD8_B, color = Treatment, shape = surv_deceased, alpha = surv_fu_years)) + geom_point() + scale_alpha_continuous(limits = c(0, 2.5), oob = scales::squish) + facet_wrap(~primary_treatment)
+
+```
+
+For this cohort, the treatment regime + lymphocyte content is more informative than the ration between CD4 and CD8 cells.
+
+# LGALS1-PTPRC
+
+## TCGA/TCIA
+
+Metastases only, not factoring in lymphocyte content:
+
+```{r lgals1-ptprc-tests, echo=F, fig.width=8, fig.asp=0.6, eval=T}
+plt_dat_lgals1_ptprc = meta_only %>%
+  mutate(lgals1_dichotom = ifelse(lgals1>median(lgals1, na.rm = T), "LGALS1 high", "LGALS1 low"),
+         ptprc_dichotom = ifelse(ptprc>median(ptprc, na.rm = T), "PTPRC high", "PTPRC low"))
+
+p1 = ggsurvplot(survfit(Surv(surv_fu_years, surv_deceased) ~ lgals1_dichotom, data = plt_dat_lgals1_ptprc), 
+                        conf.int = T, pval = T, pval.method = T)
+p2 = ggsurvplot(survfit(Surv(surv_fu_years, surv_deceased) ~ ptprc_dichotom, data = plt_dat_lgals1_ptprc), 
+                        conf.int = T, pval = T, pval.method = T)
+arrange_ggsurvplots(list(p1, p2))
+
+ggsurvplot(survfit(Surv(surv_fu_years, surv_deceased) ~ lgals1_dichotom + ptprc_dichotom, data = plt_dat_lgals1_ptprc),
+           conf.int = T)
+
+```
+
+But we know that PTPRC is highly correlated with lymphocyte content, specifically CD8 T cell content (and a little bit with M2 Macrophages):
+
+Let's see what happens when we separate CD8_T + M2 low vs high and then compute the PTPRC high/low cutoffs in each group separately.
+
+```{r ptprc-lymphos, echo=F, fig.width=8, fig.asp=0.7, eval=T}
+ ggplot(plt_dat_lgals1_ptprc %>% mutate(CD8_very_low = quanTIseq_CD8.T.cells<0.01), 
+        aes(quanTIseq_Macrophage.M2, quanTIseq_CD8.T.cells, 
+            color = ptprc_dichotom, alpha = CD8_very_low)) + 
+  geom_point(size = 0.8) +
+  scale_alpha_manual(values = c(`TRUE` = 0.3, `FALSE` = 1.))
+  
+ggplot(plt_dat_lgals1_ptprc, 
+        aes(quanTIseq_Macrophage.M2+quanTIseq_CD8.T.cells, ptprc, 
+            color = ptprc_dichotom)) + 
+  geom_point(size = 0.8)
+
+plt_dat_lgals1_ptprc_faceted = plt_dat_lgals1_ptprc %>% 
+  mutate(cd8_m2_status = ifelse((quanTIseq_Macrophage.M2+quanTIseq_CD8.T.cells)<=0.033, "low", "high")) %>%
+  group_by(cd8_m2_status) %>%
+  mutate(ptprc_dichotom = ifelse(ptprc>median(ptprc, na.rm = T), "PTPRC high", "PTPRC low"),
+         lgals1_dichotom = ifelse(lgals1>median(lgals1, na.rm = T), "LGALS1 high", "LGALS1 low"),
+         m2_cd8_sum = quanTIseq_CD8.T.cells+quanTIseq_Macrophage.M2) %>%
+  as.data.frame()
+
+(surv_cutpoint(plt_dat_lgals1_ptprc_faceted, "surv_fu_years", "surv_deceased", variables = c("quanTIseq_CD8.T.cells", "quanTIseq_Macrophage.M2", "m2_cd8_sum")))
+
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~ ptprc_dichotom, data = plt_dat_lgals1_ptprc_faceted), 
+                 plt_dat_lgals1_ptprc_faceted, facet.by = "cd8_m2_status", log.rank.weights = "S1",
+                 conf.int = T, pval = T, pval.method = T, pval.coord = c(0,0), pval.method.coord = c(0,0.04)) +
+  labs(x = "Time (years)", fill = "Expression over group median", colour = "Expression over group median")
+
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~ lgals1_dichotom, data = plt_dat_lgals1_ptprc_faceted), 
+                 plt_dat_lgals1_ptprc_faceted, facet.by = "cd8_m2_status", log.rank.weights = "S1",
+                 conf.int = T, pval = T, pval.method = T, pval.coord = c(0,0), pval.method.coord = c(0,0.04)) +
+  labs(x = "Time (years)", fill = "Expression over group median", colour = "Expression over group median")
+
+```
+
+```{r ptprc-lymphos-2, echo=F, fig.width=8, fig.asp=0.45, eval=T}
+ ggplot(plt_dat_lgals1_ptprc_faceted %>% mutate(dod = ifelse(surv_deceased, "Deceased", "Alive")), aes(lgals1, ptprc, color = quanTIseq_CD8.T.cells, alpha = surv_fu_years)) + 
+  geom_point(size = 2) + 
+  scale_color_viridis_c(limits = c(0., 0.25), oob = scales::squish) +
+  scale_alpha_continuous(limits = c(0, 10), oob = scales::squish) +
+  facet_wrap(~dod)
+
+ ggplot(plt_dat_lgals1_ptprc_faceted %>% mutate(dod = ifelse(surv_deceased, "Deceased", "Alive")), aes(lgals1, ptprc, color = quanTIseq_Macrophage.M2, alpha = surv_fu_years)) + 
+  geom_point(size = 2) + 
+  scale_color_viridis_c(limits = c(0., 0.1), oob = scales::squish) +
+  scale_alpha_continuous(limits = c(0, 10), oob = scales::squish) +
+  facet_wrap(~dod)
+
+ ggplot(plt_dat_lgals1_ptprc_faceted %>% mutate(dod = ifelse(surv_deceased, "Deceased", "Alive")), aes(lgals1, ptprc, color = m2_cd8_sum, alpha = surv_fu_years)) + 
+  geom_point(size = 2) + 
+  scale_color_viridis_c(limits = c(0., 0.3), oob = scales::squish) +
+  scale_alpha_continuous(limits = c(0, 10), oob = scales::squish) +
+  facet_wrap(~dod)
+ 
+```
+
+Slicing the CD8 T cell infiltration into categories, lets look at the LGALS1-PTPRC high/low KM curves:
+
+Data was first split into CD8 high/low groups at the median and then for each subgroup, PTPRC+LGALS1 were split into high/low groups on the group medians.
+
+```{r ptprc-lymphos-3, echo=F, fig.width=8, fig.asp=0.75, eval=T}
+metas = plt_dat %>%
+  filter(gdc_cases.samples.sample_type == "Metastatic" & 
+         cgc_slide_percent_tumor_cells > 60 &
+         (quanTIseq_CD4.T.cells + quanTIseq_CD8.T.cells) > 0.01 ) %>%
+  mutate(cd8_status = ifelse(quanTIseq_CD8.T.cells>median(quanTIseq_CD8.T.cells), "CD8 high", "CD8 low")) %>%
+  group_by(cd8_status) %>%
+  mutate(ptprc_median = ifelse(ptprc>median(ptprc), "PTPRC high", "PTPRC low"),
+         lgals1_median = ifelse(lgals1>median(lgals1), "LGALS1 high", "LGALS1 low")) %>%
+  ungroup()
+
+ggsurvplot(survfit(Surv(surv_fu_years, surv_deceased) ~  cd8_status, data = metas), 
+           pval = T, pval.method = T, data = as.data.frame(metas), conf.int = T)
+
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~  ptprc_median, data = metas), 
+                 pval = T, pval.method = T, data = as.data.frame(metas), 
+                 facet.by = c("cd8_status"), nrow = 1, conf.int = T)
+
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~  lgals1_median, data = metas), 
+                 pval = T, pval.method = T, data = as.data.frame(metas), 
+                 facet.by = c("cd8_status", "ptprc_median"), nrow = 1, conf.int = T)
+```
+
+Interestingly, there is a high effect in one specific subgroup, even after accounting for CD8 status.
+
+Just for completeness: here is the same analysis for the primary tumor cases, which are much fewer:
+
+```{r ptprc-lymphos-primary, echo=F, fig.width=8, fig.asp=0.75, eval=T}
+primaries = plt_dat %>%
+  filter(gdc_cases.samples.sample_type == "Primary Tumor" & 
+         cgc_slide_percent_tumor_cells > 60 &
+         (quanTIseq_CD4.T.cells + quanTIseq_CD8.T.cells) > 0.01 ) %>%
+  mutate(cd8_status = ifelse(quanTIseq_CD8.T.cells>median(quanTIseq_CD8.T.cells), "CD8 high", "CD8 low")) %>%
+  group_by(cd8_status) %>%
+  mutate(ptprc_median = ifelse(ptprc>median(ptprc), "PTPRC high", "PTPRC low"),
+         lgals1_median = ifelse(lgals1>median(lgals1), "LGALS1 high", "LGALS1 low")) %>%
+  ungroup()
+
+ggsurvplot(survfit(Surv(surv_fu_years, surv_deceased) ~  cd8_status, data = primaries), 
+           pval = T, pval.method = T, data = as.data.frame(primaries), conf.int = T)
+
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~  ptprc_median, data = primaries), 
+                 pval = T, pval.method = T, data = as.data.frame(primaries), 
+                 facet.by = c("cd8_status"), nrow = 1, conf.int = T)
+
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~  lgals1_median, data = primaries), 
+                 pval = T, pval.method = T, data = as.data.frame(primaries), 
+                 facet.by = c("cd8_status", "ptprc_median"), nrow = 1, conf.int = T)
+```
+
+Nothing consistent for the few primary samples.
+
+## Gide et al.
+
+Metastases only, not factoring in lymphocyte content:
+
+```{r lgals1-ptprc-gide, echo=F, fig.width=8, fig.asp=0.6, eval=T}
+gide_plt_dat_lgals1_ptprc = gide_plt_dat %>%
+  mutate(lgals1_dichotom = ifelse(lgals1>median(lgals1, na.rm = T), "LGALS1 high", "LGALS1 low"),
+         ptprc_dichotom = ifelse(ptprc>median(ptprc, na.rm = T), "PTPRC high", "PTPRC low"))
+
+p1 = ggsurvplot(survfit(Surv(surv_fu_years, surv_deceased) ~ lgals1_dichotom, data = gide_plt_dat_lgals1_ptprc), 
+                        conf.int = T, pval = T, pval.method = T)
+p2 = ggsurvplot(survfit(Surv(surv_fu_years, surv_deceased) ~ ptprc_dichotom, data = gide_plt_dat_lgals1_ptprc), 
+                        conf.int = T, pval = T, pval.method = T)
+arrange_ggsurvplots(list(p1, p2))
+
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~ lgals1_dichotom + ptprc_dichotom, data = gide_plt_dat_lgals1_ptprc), gide_plt_dat_lgals1_ptprc, conf.int = T, pval = T, facet.by = "primary_treatment")
+
+nivo_only = gide_plt_dat_lgals1_ptprc %>% 
+  filter(Treatment %in% c("Pembrolizumab", "Ipilimumab + Pembrolizumab")) %>%
+  mutate(CD8_T_higher_than_median = ifelse(T.cells.CD8>median(T.cells.CD8, na.rm = T), "CD8 high", "CD8 low"),
+         lgals1_dichotom = ifelse(lgals1>median(lgals1, na.rm = T), "LGALS1 high", "LGALS1 low"),
+         ptprc_dichotom = ifelse(ptprc>median(ptprc, na.rm = T), "PTPRC high", "PTPRC low"),
+         )
+
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~ ptprc_dichotom + lgals1_dichotom, data = nivo_only), nivo_only, conf.int = T, pval = T, facet.by = c("CD8_T_higher_than_median"))
+
+```
+
+But we know that PTPRC is highly correlated with lymphocyte content, specifically CD8 T cell content (and a little bit with M2 Macrophages):
+
+Let's see what happens when we separate CD8_T + M2 low vs high and then compute the PTPRC high/low cutoffs in each group separately.
+
+```{r ptprc-lymphos-gide, echo=F, fig.width=8, fig.asp=0.7, eval=T}
+ ggplot(gide_plt_dat_lgals1_ptprc %>% mutate(CD8_very_low = T.cells.CD8<0.01), 
+        aes(Macrophages.M2, T.cells.CD8, 
+            color = ptprc_dichotom, alpha = CD8_very_low)) + 
+  geom_point(size = 0.8) +
+  scale_alpha_manual(values = c(`TRUE` = 0.3, `FALSE` = 1.))
+  
+ggplot(gide_plt_dat_lgals1_ptprc, aes(Macrophages.M2 + T.cells.CD8, ptprc, 
+            color = ptprc_dichotom)) + 
+  geom_point(size = 0.8)
+```
+
+M2 + CD8 T content is indeed very predictive of PTPRC expression in this cohort.
+
+```{r ptprc-lymphos-gide-2, echo=F, fig.width=8, fig.asp=0.7, eval=T}
+gide_plt_dat_lgals1_ptprc = gide_plt_dat_lgals1_ptprc %>% 
+  mutate(cd8_m2_status = ifelse((Macrophages.M2 + T.cells.CD8)<=0.033, "low", "high")) %>%
+  group_by(cd8_m2_status, primary_treatment) %>%
+  mutate(ptprc_dichotom = ifelse(ptprc>median(ptprc, na.rm = T), "PTPRC high", "PTPRC low"),
+         lgals1_dichotom = ifelse(lgals1>median(lgals1, na.rm = T), "LGALS1 high", "LGALS1 low"),
+         m2_cd8_sum = Macrophages.M2 + T.cells.CD8) %>%
+  ungroup() %>% as.data.frame()
+
+(surv_cutpoint(gide_plt_dat_lgals1_ptprc, "surv_fu_years", "surv_deceased", variables = c("T.cells.CD8", "Macrophages.M2", "m2_cd8_sum")))
+
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~ ptprc_dichotom, data = gide_plt_dat_lgals1_ptprc), 
+                 gide_plt_dat_lgals1_ptprc, facet.by = c("cd8_m2_status", "primary_treatment"), log.rank.weights = "S1",
+                 conf.int = T, pval = T, pval.method = T, pval.coord = c(0,0), pval.method.coord = c(0,0.04)) +
+  labs(x = "Time (years)", fill = "Expression over group median", colour = "Expression over group median")
+
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~ lgals1_dichotom, data = gide_plt_dat_lgals1_ptprc), 
+                 gide_plt_dat_lgals1_ptprc, facet.by = c("cd8_m2_status", "primary_treatment"), log.rank.weights = "S1",
+                 conf.int = T, pval = T, pval.method = T, pval.coord = c(0,0), pval.method.coord = c(0,0.04)) +
+  labs(x = "Time (years)", fill = "Expression over group median", colour = "Expression over group median")
+
+```
+
+We might see the same effect as in the TCGA data, but the cohort is too small for clear results from this kind of analysis.
+
+```{r ptprc-lymphos-gide-3, echo=F, fig.width=8, fig.asp=0.45, eval=T}
+ggplot(gide_plt_dat_lgals1_ptprc %>% mutate(dod = ifelse(surv_deceased, "Deceased", "Alive")), aes(lgals1, ptprc, color = T.cells.CD8, alpha = surv_fu_years)) + 
+  geom_point(size = 2) + 
+  scale_color_viridis_c(limits = c(0., 0.05), oob = scales::squish) +
+  scale_alpha_continuous(limits = c(0, 2.5), oob = scales::squish) +
+  facet_wrap(~dod+primary_treatment)
+
+ggplot(gide_plt_dat_lgals1_ptprc %>% mutate(dod = ifelse(surv_deceased, "Deceased", "Alive")), aes(lgals1, ptprc, color = Macrophages.M2, alpha = surv_fu_years)) + 
+  geom_point(size = 2) + 
+  scale_color_viridis_c(limits = c(0., 0.05), oob = scales::squish) +
+  scale_alpha_continuous(limits = c(0, 2.5), oob = scales::squish) +
+  facet_wrap(~dod+primary_treatment)
+
+ ggplot(gide_plt_dat_lgals1_ptprc %>% mutate(dod = ifelse(surv_deceased, "Deceased", "Alive")), aes(lgals1, ptprc, color = m2_cd8_sum, alpha = surv_fu_years)) + 
+  geom_point(size = 2) + 
+  scale_color_viridis_c(limits = c(0., 0.1), oob = scales::squish) +
+  scale_alpha_continuous(limits = c(0, 2.5), oob = scales::squish) +
+  facet_wrap(~dod+primary_treatment)
+
+```
+
+Slicing the CD8 T cell infiltration into categories, lets look at the LGALS1-PTPRC high/low KM curves:
+
+Data was first split into CD8 high/low groups at the median and then for each subgroup, PTPRC+LGALS1 were split into high/low groups on the group medians.
+
+```{r ptprc-lymphos-gide-4, echo=F, fig.width=8, fig.asp=0.75, eval=T}
+gide_use = gide_plt_dat_lgals1_ptprc %>%
+  #filter((T.cells.CD4 + T.cells.CD8) > 0.01) %>%   # we already have too few samples
+  mutate(cd8_status = ifelse(T.cells.CD8>median(T.cells.CD8), "CD8 high", "CD8 low")) %>%
+  group_by(cd8_status) %>%
+  mutate(ptprc_median = ifelse(ptprc>median(ptprc), "PTPRC high", "PTPRC low"),
+         lgals1_median = ifelse(lgals1>median(lgals1), "LGALS1 high", "LGALS1 low")) %>%
+  ungroup() %>% as.data.frame()
+
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~  cd8_status, data = gide_use), 
+                 pval = T, pval.method = T, data = gide_use, 
+                 facet.by = c("primary_treatment"), nrow = 1, conf.int = T)
+
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~  ptprc_median, data = gide_use), 
+                 pval = T, pval.method = T, data = gide_use, 
+                 facet.by = c("cd8_status", "primary_treatment"), nrow = 1, conf.int = T)
+
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~  lgals1_median, data = gide_use), 
+                 pval = T, pval.method = T, data = gide_use, 
+                 facet.by = c("cd8_status", "primary_treatment"), nrow = 1, conf.int = T)
+
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~  lgals1_median, data = gide_use), 
+                 pval = T, pval.method = T, data = gide_use, 
+                 facet.by = c("cd8_status", "ptprc_median"), nrow = 1, conf.int = T)
+```
+
+Too few samples per subgroup for clear results.
+
+Last try: single out the LGALS1 high + PTPRC high group and test against all others:
+
+```{r ptprc-lymphos-gide-5, echo=F, fig.width=8, fig.asp=0.75, eval=T}
+gide_use = gide_use %>%
+  mutate(lgals1_ptprc_state = ifelse(ptprc_median=="PTPRC high" & lgals1_median=="LGALS1 low", "High-Low", "Other"))
+
+ggsurvplot_facet(survfit(Surv(surv_fu_years, surv_deceased) ~  lgals1_ptprc_state, data = gide_use), 
+                 pval = T, pval.method = T, data = gide_use, 
+                 facet.by = c("cd8_status", "primary_treatment"), nrow = 1, conf.int = T)
+
+```
+
+Analysis was continued in a different file.

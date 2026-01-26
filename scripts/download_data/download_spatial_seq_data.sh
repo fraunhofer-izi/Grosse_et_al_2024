@@ -1,0 +1,81 @@
+#!/bin/bash
+
+# download dataset GSE314509 from GEO
+
+mkdir -p ../../data/spatial_seq_data/
+cd ../../data/spatial_seq_data/
+wget -nc -O "GSE314509_RAW.tar" "https://www.ncbi.nlm.nih.gov/geo/download/?acc=GSE314509&format=file"
+tar -xvf GSE314509_RAW.tar
+
+# Extract all .gz files
+
+gunzip *.gz
+
+# Create directories for each sample
+mkdir -p HD_PM1/spatial HD_PM2/spatial HD_PM3/spatial HD_PM4/spatial HD_MM1/spatial HD_MM2/spatial HD_MM3/spatial
+
+# Link extracted files to sample specific directories
+
+mv GSM9400103_HD_PM1_aligned_fiducials.jpg HD_PM1/spatial/aligned_fiducials.jpg
+mv GSM9400103_HD_PM1_barcodes.tsv HD_PM1/filtered_feature_bc_matrix/barcodes.tsv
+mv GSM9400103_HD_PM1_detected_tissue_image.jpg HD_PM1/spatial/spatial/detected_tissue_image.jpg
+mv GSM9400103_HD_PM1_features.tsv HD_PM1/filtered_feature_bc_matrix/features.tsv
+mv GSM9400103_HD_PM1_matrix.mtx HD_PM1/filtered_feature_bc_matrix/matrix.mtx
+mv GSM9400103_HD_PM1_scalefactors_json.json HD_PM1/spatial/scalefactors_json.json
+mv GSM9400103_HD_PM1_tissue_hires_image.png HD_PM1/spatial/tissue_hires_image.png
+mv GSM9400103_HD_PM1_tissue_lowres_image.png HD_PM1/spatial/tissue_lowres_image.png
+mv GSM9400103_HD_PM1_tissue_positions.parquet HD_PM1/spatial/tissue_positions.parquet
+mv GSM9400104_HD_PM2_aligned_fiducials.jpg HD_PM2/spatial/aligned_fiducials.jpg
+mv GSM9400104_HD_PM2_barcodes.tsv HD_PM2/filtered_feature_bc_matrix/barcodes.tsv
+mv GSM9400104_HD_PM2_detected_tissue_image.jpg HD_PM2/spatial/detected_tissue_image.jpg
+mv GSM9400104_HD_PM2_features.tsv HD_PM2/filtered_feature_bc_matrix/features.tsv
+mv GSM9400104_HD_PM2_matrix.mtx HD_PM2/filtered_feature_bc_matrix/matrix.mtx
+mv GSM9400104_HD_PM2_scalefactors_json.json HD_PM2/spatial/scalefactors_json.json
+mv GSM9400104_HD_PM2_tissue_hires_image.png HD_PM2/spatial/tissue_hires_image.png
+mv GSM9400104_HD_PM2_tissue_lowres_image.png HD_PM2/spatial/tissue_lowres_image.png
+mv GSM9400104_HD_PM2_tissue_positions.parquet HD_PM2/spatial/tissue_positions.parquet
+mv GSM9400105_HD_PM3_aligned_fiducials.jpg HD_PM3/spatial/aligned_fiducials.jpg
+mv GSM9400105_HD_PM3_barcodes.tsv HD_PM3/filtered_feature_bc_matrix/barcodes.tsv
+mv GSM9400105_HD_PM3_detected_tissue_image.jpg HD_PM3/spatial/detected_tissue_image.jpg
+mv GSM9400105_HD_PM3_features.tsv HD_PM3/filtered_feature_bc_matrix/features.tsv
+mv GSM9400105_HD_PM3_matrix.mtx HD_PM3/filtered_feature_bc_matrix/matrix.mtx
+mv GSM9400105_HD_PM3_scalefactors_json.json HD_PM3/spatial/scalefactors_json.json
+mv GSM9400105_HD_PM3_tissue_hires_image.png HD_PM3/spatial/tissue_hires_image.png
+mv GSM9400105_HD_PM3_tissue_lowres_image.png HD_PM3/spatial/tissue_lowres_image.png
+mv GSM9400105_HD_PM3_tissue_positions.parquet HD_PM3/spatial/tissue_positions.parquet
+mv GSM9400106_HD_PM4_aligned_fiducials.jpg HD_PM4/spatial/aligned_fiducials.jpg
+mv GSM9400106_HD_PM4_barcodes.tsv HD_PM4/filtered_feature_bc_matrix/barcodes.tsv
+mv GSM9400106_HD_PM4_detected_tissue_image.jpg HD_PM4/spatial/detected_tissue_image.jpg
+mv GSM9400106_HD_PM4_features.tsv HD_PM4/filtered_feature_bc_matrix/features.tsv
+mv GSM9400106_HD_PM4_matrix.mtx HD_PM4/filtered_feature_bc_matrix/matrix.mtx
+mv GSM9400106_HD_PM4_scalefactors_json.json HD_PM4/spatial/scalefactors_json.json
+mv GSM9400106_HD_PM4_tissue_hires_image.png HD_PM4/spatial/tissue_hires_image.png
+mv GSM9400106_HD_PM4_tissue_lowres_image.png HD_PM4/spatial/tissue_lowres_image.png
+mv GSM9400106_HD_PM4_tissue_positions.parquet HD_PM4/spatial/tissue_positions.parquet
+mv GSM9400107_HD_MM1_aligned_fiducials.jpg HD_MM1/spatial/aligned_fiducials.jpg
+mv GSM9400107_HD_MM1_barcodes.tsv HD_MM1/filtered_feature_bc_matrix/barcodes.tsv
+mv GSM9400107_HD_MM1_detected_tissue_image.jpg HD_MM1/spatial/detected_tissue_image.jpg
+mv GSM9400107_HD_MM1_features.tsv HD_MM1/filtered_feature_bc_matrix/features.tsv
+mv GSM9400107_HD_MM1_matrix.mtx HD_MM1/filtered_feature_bc_matrix/matrix.mtx
+mv GSM9400107_HD_MM1_scalefactors_json.json HD_MM1/spatial/scalefactors_json.json
+mv GSM9400107_HD_MM1_tissue_hires_image.png HD_MM1/spatial/tissue_hires_image.png
+mv GSM9400107_HD_MM1_tissue_lowres_image.png HD_MM1/spatial/tissue_lowres_image.png
+mv GSM9400107_HD_MM1_tissue_positions.parquet HD_MM1/spatial/tissue_positions.parquet
+mv GSM9400108_HD_MM2_aligned_fiducials.jpg HD_MM2/spatial/aligned_fiducials.jpg
+mv GSM9400108_HD_MM2_barcodes.tsv HD_MM2/filtered_feature_bc_matrix/barcodes.tsv
+mv GSM9400108_HD_MM2_detected_tissue_image.jpg HD_MM2/spatial/detected_tissue_image.jpg
+mv GSM9400108_HD_MM2_features.tsv HD_MM2/filtered_feature_bc_matrix/features.tsv
+mv GSM9400108_HD_MM2_matrix.mtx HD_MM2/filtered_feature_bc_matrix/matrix.mtx
+mv GSM9400108_HD_MM2_scalefactors_json.json HD_MM2/spatial/scalefactors_json.json
+mv GSM9400108_HD_MM2_tissue_hires_image.png HD_MM2/spatial/tissue_hires_image.png
+mv GSM9400108_HD_MM2_tissue_lowres_image.png HD_MM2/spatial/tissue_lowres_image.png
+mv GSM9400108_HD_MM2_tissue_positions.parquet HD_MM2/spatial/tissue_positions.parquet
+mv GSM9400109_HD_MM3_aligned_fiducials.jpg HD_MM3/spatial/aligned_fiducials.jpg
+mv GSM9400109_HD_MM3_barcodes.tsv HD_MM3/filtered_feature_bc_matrix/barcodes.tsv
+mv GSM9400109_HD_MM3_detected_tissue_image.jpg HD_MM3/spatial/detected_tissue_image.jpg
+mv GSM9400109_HD_MM3_features.tsv HD_MM3/filtered_feature_bc_matrix/features.tsv
+mv GSM9400109_HD_MM3_matrix.mtx HD_MM3/filtered_feature_bc_matrix/matrix.mtx
+mv GSM9400109_HD_MM3_scalefactors_json.json HD_MM3/spatial/scalefactors_json.json
+mv GSM9400109_HD_MM3_tissue_hires_image.png HD_MM3/spatial/tissue_hires_image.png
+mv GSM9400109_HD_MM3_tissue_lowres_image.png HD_MM3/spatial/tissue_lowres_image.png
+mv GSM9400109_HD_MM3_tissue_positions.parquet HD_MM3/spatial/tissue_positions.parquet

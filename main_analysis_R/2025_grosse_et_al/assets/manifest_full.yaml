@@ -1,0 +1,320 @@
+# Project and in/out paths, now specific for each sample because its more flexible
+# enter all samples for the analysis here + append one entry per sample
+# at the end (for paths and settings and such)
+# SAMPLE IDs MAY END UP IN PATHS, SO PLEASE USE ONLY [a-zA-Z0-9-_.] IN THESE NAMES
+samples: ["PM1", "PM2", "PM3", "PM4", "MM1", "MN1", "MN2", "PM5", "PM6", "PM7", "MM2", "MM3"]
+# to avoid any processing of samples, just remove them from the list above
+# samples in the list below get basic preprocessing but no in-depth analysis
+rejected_samples: ["MM2", "MM3", "POZNIAK1", "POZNIAK2", "POZNIAK3"]
+
+# samples from existing/external datasets
+external_samples: ["POZNIAK1", "POZNIAK2", "POZNIAK3", "POZNIAK4", "POZNIAK5", "POZNIAK6"]
+
+# collections of samples for various reasons
+primary_melanoma_samples: ["PM1", "PM2", "PM3", "PM4", "PM5", "PM6", "PM7"]
+# the samples with immune response are used for inflammatory border LRI in Grosse et al. 2026
+highest_immune_response_melanoma_samples: ["PM1", "PM2", "PM3", "PM4"]
+metastasis_samples: ["MM1", "MM2", "MM3"]
+naevus_samples: ["MN1", "MN2"]
+
+## only for HD data here
+HD_data_ids_used: ["HD_PM1", "HD_PM2", "HD_PM3", "HD_PM4", "HD_MM1", "HD_MM2", "HD_MM3"]
+HD_data_input_paths:
+  HD_PM1: "<INPUTPATH>/tacco-annotate-OT-HD_PM1-hema-rotate.h5ad"
+  HD_PM2: "<INPUTPATH>/tacco-annotate-OT-HD_PM2-hema-rotate.h5ad"
+  HD_PM3: "<INPUTPATH>/tacco-annotate-OT-HD_PM3-hema-rotate.h5ad"
+  HD_PM4: "<INPUTPATH>/tacco-annotate-OT-HD_PM4-hema-rotate.h5ad"
+  HD_MM1: "<INPUTPATH>/tacco-annotate-OT-HD_MM1-hema-rotate.h5ad"
+  HD_MM2: "<INPUTPATH>/tacco-annotate-OT-HD_MM2-hema-rotate.h5ad"
+  HD_MM3: "<INPUTPATH>/tacco-annotate-OT-HD_MM3-hema-rotate.h5ad"
+HD_border_region_dist_cutoff_mym: 50
+HD_filter:
+  min_counts: 40
+  min_bins: 5
+  max_bins: 150
+  allowed_sources: ["primary"] # primary, secondary or both
+
+# QC settings
+QC_cutoffs:
+  genes: 80
+  counts: 100
+  mito: 20
+global_qc_resolutions: [0.3, 0.7, 1.1, 1.5]
+
+# preprocessing settings
+clustree_resolutions: [0.3, 0.5, 0.7, 0.9, 1.1]
+pca_components_clustering_sct: 25
+
+# LRI settings
+Niches_result_used: "CTN"
+Niches_normalization_used: "logcounts"
+
+# output directories for reports
+## the parent path is absolute, all other output paths are relative to it
+results_directory_parent: "<RESULTSDIR>/2025-grosse-et-al/"
+global_index_dir: "global_index/"
+
+# intermediate data
+## the parent path is absolute, all other intermediate file paths are relative to it
+workdata_parent: "<INTERMEDIATEDIR>/2025-grosse-et-al/"
+merge_and_integration_dir: "combined/"
+HD_intermediates: "hd/"
+
+single_cell_reference_dir: "<INPUTPATH>/Stubenvoll_2025_melanoma/"
+
+#the sample that michael analyzed at first
+PM1:
+  full_name: "Primary_Melanoma_1"
+  type: "SSM"
+  crop_area: [0.25, 0.2, 0.8, 0.75]
+  rotate: 90
+  mirror_x: 0
+  mirror_y: 0
+  secondary_analysis: "<RAWDATA>/PM1_out/outs/"
+  annotations: "./assets/annotations/PM1/"
+  workdata:  "samples/PM1/"
+  tertiary: "samples/PM1/"
+  seurat_clustering_resolution: 0.5
+  note: "Superficial spreading melanoma, Breslow thickness 2.8 mm"
+
+MM2:
+  full_name: "Metastasis_2"
+  type: "Metastasis"
+  crop_area: [0.2, 0.22, 0.75, 0.82]
+  rotate: 0
+  mirror_x: 0
+  mirror_y: 0
+  secondary_analysis: "<RAWDATA>/MM2_out/outs/"
+  annotations: "./assets/annotations/MM2/"
+  workdata:  "samples/MM2/"
+  tertiary: "samples/MM2/"
+  seurat_clustering_resolution: 0.5
+  note: "Removed from further analysis"
+
+PM4:
+  full_name: "Primary_Melanoma_4"
+  type: "Primary"
+  crop_area: [0.02, 0.2, 0.75, 0.87]
+  rotate: 270
+  mirror_x: 0
+  mirror_y: 0
+  secondary_analysis: "<RAWDATA>/PM4_out/outs/"
+  annotations: "./assets/annotations/PM4/"
+  workdata:  "samples/PM4/"
+  tertiary: "samples/PM4/"
+  seurat_clustering_resolution: 0.7
+  note: "Missing Description"
+
+MM3:
+  full_name: "Metastasis_1"
+  type: "Metastasis"
+  crop_area: [0.2, 0.18, 0.86, 0.8]
+  rotate: 90
+  mirror_x: 0
+  mirror_y: 0
+  secondary_analysis: "<RAWDATA>/MM3_out/outs/"
+  annotations: "./assets/annotations/MM3/"
+  workdata:  "samples/MM3/"
+  tertiary: "samples/MM3/"
+  seurat_clustering_resolution: 0.5
+  note: "Removed from further analysis"
+
+# second set of samples
+PM6:
+  full_name: "Primary_Melanoma_6"
+  type: "NM"
+  crop_area: [0.27, 0.27, 0.9, 0.9]
+  rotate: 0
+  mirror_x: 0
+  mirror_y: 0
+  secondary_analysis: "<RAWDATA>/PM6_out/outs/"
+  annotations: "./assets/annotations/PM6/"
+  workdata:  "samples/PM6/"
+  tertiary: "samples/PM6/"
+  seurat_clustering_resolution: 0.3
+  note: "Nodular melanoma, Breslow thickness 10 mm"
+
+PM7:
+  full_name: "Primary_Melanoma_7"
+  type: "MoBN"
+  crop_area: [0.08, 0.05, 0.92, 0.75]
+  rotate: 0
+  mirror_x: 0
+  mirror_y: 1
+  secondary_analysis: "<RAWDATA>/PM7_out/outs/"
+  annotations: "./assets/annotations/PM7/"
+  workdata:  "samples/PM7/"
+  tertiary: "samples/PM7/"
+  seurat_clustering_resolution: 0.9
+  note: "Melanoma on blue nevus, Breslow thickness 2.7 mm"
+
+PM2:
+  full_name: "Primary_Melanoma_2"
+  type: "SSM"
+  crop_area: [0.05, 0.18, 0.8, 0.83]
+  rotate: 0
+  mirror_x: 0
+  mirror_y: 1
+  secondary_analysis: "<RAWDATA>/PM2_out/outs/"
+  annotations: "./assets/annotations/PM2/"
+  workdata:  "samples/PM2/"
+  tertiary: "samples/PM2/"
+  seurat_clustering_resolution: 1.1
+  note: "Superficial spreading melanoma, Breslow thickness 0.6 mm"
+
+MM1:
+  full_name: "Metastasis_1"
+  type: "ITM"
+  crop_area: [0.08, 0.04, 0.78, 0.74]
+  rotate: 0
+  mirror_x: 0
+  mirror_y: 0
+  secondary_analysis: "<RAWDATA>/MM1_out/outs/"
+  annotations: "./assets/annotations/MM1/"
+  workdata:  "samples/MM1/"
+  tertiary: "samples/MM1/"
+  seurat_clustering_resolution: 0.5
+  note: "Skin in transit metastasis"
+
+# third set of samples
+MN1:
+  full_name: "Naevus_1"
+  type: "Naevus"
+  crop_area: [0.12, 0.33, 0.84, 1.0]
+  rotate: 180
+  mirror_x: 0
+  mirror_y: 0
+  secondary_analysis: "<RAWDATA>/MN1_out/outs/"
+  annotations: "./assets/annotations/MN1/"
+  workdata:  "samples/MN1/"
+  tertiary: "samples/MN1/"
+  seurat_clustering_resolution: 0.7
+  note: "Melanocytic compound nevus"
+
+PM5:
+  full_name: "Primary_Melanoma_5"
+  type: "NM"
+  crop_area: [0.05, 0.22, 0.85, 0.82]
+  rotate: 0
+  mirror_x: 0
+  mirror_y: 0
+  secondary_analysis: "<RAWDATA>/PM5_out/outs/"
+  annotations: "./assets/annotations/PM5/"
+  workdata:  "samples/PM5/"
+  tertiary: "samples/PM5/"
+  seurat_clustering_resolution: 0.5
+  note: "Nodular melanoma, Breslow thickness 1.6 mm"
+
+MN2:
+  full_name: "Naevus_2"
+  type: "Naevus"
+  crop_area: [0.07, 0.05, 0.87, 0.8]
+  rotate: 270
+  mirror_x: 0
+  mirror_y: 0
+  secondary_analysis: "<RAWDATA>/MN2_out/outs/"
+  annotations: "./assets/annotations/MN2/"
+  workdata:  "samples/MN2/"
+  tertiary: "samples/MN2/"
+  seurat_clustering_resolution: 0.3
+  note: "Melanocytic compound nevus"
+
+PM3:
+  full_name: "Primary_Melanoma_3"
+  type: "ALM"
+  crop_area: [0.08, 0.22, 0.83, 0.82]
+  rotate: 180
+  mirror_x: 0
+  mirror_y: 0
+  secondary_analysis: "<RAWDATA>/PM3_out/outs/"
+  annotations: "./assets/annotations/PM3/"
+  workdata:  "samples/PM3/"
+  tertiary: "samples/PM3/"
+  seurat_clustering_resolution: 0.5
+  note: "Acrolentiginous melanoma, Breslow thicknes 4.3 mm"
+
+# External Samples
+
+POZNIAK1:
+  full_name: "POZNIAK_S1"
+  type: "Metastasis (absent)"
+  crop_area: [0.07, 0.05, 0.81, 0.9]
+  rotate: 0
+  mirror_x: 0
+  mirror_y: 0
+  secondary_analysis:  "./data/pozniak_2024/Pt10_K28284/outs/"
+  annotations: "./assets/annotations/POZNIAK1/"
+  workdata:  "samples/POZNIAK1/"
+  tertiary: "samples/POZNIAK1/"
+  seurat_clustering_resolution: 0.5
+  note: "treatment-naive metastatic samples (lymph node), source: https://doi.org/10.1016/j.cell.2023.11.037"
+
+POZNIAK2:
+  full_name: "POZNIAK_S2"
+  type: "Metastasis (non-brisk)"
+  crop_area: [0.1, 0.05, 0.85, 0.9]
+  rotate: 0
+  mirror_x: 0
+  mirror_y: 0
+  secondary_analysis:  "./data/pozniak_2024/Pt11_K28439/outs/"
+  annotations: "./assets/annotations/POZNIAK2/"
+  workdata:  "samples/POZNIAK2/"
+  tertiary: "samples/POZNIAK2/"
+  seurat_clustering_resolution: 0.5
+  note: "treatment-naive metastatic samples (lymph node), source: https://doi.org/10.1016/j.cell.2023.11.037"
+
+POZNIAK3:
+  full_name: "POZNIAK_S3"
+  type: "Metastasis (non-brisk)"
+  crop_area: [0.15, 0.25, 0.95, 0.95]
+  rotate: 0
+  mirror_x: 0
+  mirror_y: 0
+  secondary_analysis:  "./data/pozniak_2024/Pt12_K29368/outs/"
+  annotations: "./assets/annotations/POZNIAK3/"
+  workdata:  "samples/POZNIAK3/"
+  tertiary: "samples/POZNIAK3/"
+  seurat_clustering_resolution: 0.7
+  note: "treatment-naive metastatic samples (lymph node), source: https://doi.org/10.1016/j.cell.2023.11.037"
+
+POZNIAK4:
+  full_name: "POZNIAK_S4"
+  type: "Metastasis (absent)"
+  crop_area: [0.1, 0.15, 0.85, 0.9]
+  rotate: 0
+  mirror_x: 0
+  mirror_y: 0
+  secondary_analysis:  "./data/pozniak_2024/Melanoma2_1/outs/"
+  annotations: "./assets/annotations/POZNIAK4/"
+  workdata:  "samples/POZNIAK4/"
+  tertiary: "samples/POZNIAK4/"
+  seurat_clustering_resolution: 0.5
+  note: "treatment-naive metastatic samples (lymph node), source: https://doi.org/10.1016/j.cell.2023.11.037"
+
+POZNIAK5:
+  full_name: "POZNIAK_S5"
+  type: "Metastasis (non-brisk)"
+  crop_area: [0.08, 0.25, 0.73, 0.9]
+  rotate: 0
+  mirror_x: 0
+  mirror_y: 0
+  secondary_analysis:  "./data/pozniak_2024/Melanoma2_3/outs/"
+  annotations: "./assets/annotations/POZNIAK5/"
+  workdata:  "samples/POZNIAK5/"
+  tertiary: "samples/POZNIAK5/"
+  seurat_clustering_resolution: 0.5
+  note: "treatment-naive metastatic samples (lymph node), source: https://doi.org/10.1016/j.cell.2023.11.037"
+
+POZNIAK6:
+  full_name: "POZNIAK_S6"
+  type: "Metastasis (brisk)"
+  crop_area: [0.15, 0.05, 0.85, 0.75]
+  rotate: 0
+  mirror_x: 0
+  mirror_y: 0
+  secondary_analysis:  "./data/pozniak_2024/Pt09_K3000/outs/"
+  annotations: "./assets/annotations/POZNIAK6/"
+  workdata:  "samples/POZNIAK6/"
+  tertiary: "samples/POZNIAK6/"
+  seurat_clustering_resolution: 0.3
+  note: "treatment-naive metastatic samples (lymph node), source: https://doi.org/10.1016/j.cell.2023.11.037"

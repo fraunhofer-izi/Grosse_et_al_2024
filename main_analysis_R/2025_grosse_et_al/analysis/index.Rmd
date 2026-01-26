@@ -1,0 +1,54 @@
+---
+title: "UCCL Melanoma 10X Visium Project - Part 2"
+site: workflowr::wflow_site
+output:
+  workflowr::wflow_html:
+    toc: false
+workflowr:
+  suppress_report: TRUE
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r sample-title, results='asis', echo = FALSE}
+library(yaml)
+manifest = yaml.load_file("./assets/manifest.yaml")
+current_sample = scan(file.path(manifest$workdata_parent, ".tmp/active_sample"), what = "character", quiet = T)
+sample_full_name = manifest[[current_sample]]$full_name
+cat("# Sample:", sample_full_name, "\n")
+
+```
+
+Author: Florian Große, Michael Rade (Last updated: `r Sys.Date()`)
+
+## Data analysis
+
+* [Quality control: `r I(current_sample)`](01_qc.html)
+* [QC Spot Selection: `r I(current_sample)`](03_qc_select.html)
+* [Expert Annotations: `r I(current_sample)`](04_annotations.html)
+* [Deconvolved Celltypes: `r I(current_sample)`](05_deconv_results.html)
+* [Module Scores: `r I(current_sample)`](06_module_scores.html)
+* [Cluster Markers and ORA: `r I(current_sample)`](07_clustering.html)
+* [Collected Plots: `r I(current_sample)`](08_paper_plots.html)
+```{r only-non-rejected, results='asis', echo = FALSE}
+if (!(current_sample %in% manifest$rejected_samples)){
+  cat(paste0(
+"* [Ligand-Receptor Analysis: ",current_sample,"](09_LRI.html)
+
+"))
+}
+
+
+```
+
+
+
+```{r notes, results='asis', echo = FALSE}
+note = manifest[[current_sample]]$note
+if (!(length(note) == 0 || note == "")){
+  cat("# Notes \n\n")
+  cat(note)
+}
+```
+
+

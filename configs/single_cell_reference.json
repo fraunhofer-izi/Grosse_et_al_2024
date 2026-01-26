@@ -1,0 +1,19 @@
+{
+    "celltype_annotation": "../../data/single_cell_data/Stubenvoll_Schmidt_2025_cell_annotation_parsed_and_converted.tsv",
+    "cell_type_state": "../../data/single_cell_data/cell_type_state_matching.tsv",
+    "path_to_sc_data": "../../data/single_cell_data/GSE277165_extracted",
+    "output_dir": "../../data/output/single_cell_reference",
+    "h5ad_file": "Stubenvoll_2025_melanoma_single_cell_reference.h5ad",
+    "sample_name_map": {
+        "GSM8515675": "MM01",
+        "GSM8515676": "MM02",
+        "GSM8515677": "MM03",
+        "GSM8515678": "MM04",
+        "GSM8515679": "MM05",
+        "GSM8515680": "MM06",
+        "GSM8515681": "MM07",
+        "GSM8515682": "MM08",
+        "GSM8515683": "MM09",
+        "GSM8515684": "MM10"
+    }
+}

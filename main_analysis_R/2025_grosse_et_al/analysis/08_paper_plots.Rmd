@@ -1,0 +1,705 @@
+---
+title: "Example for aggregated plots for the paper"
+output:
+  workflowr::wflow_html:
+    code_folding: hide
+    fig_caption: yes
+    number_sections: yes
+    pandoc_args: []
+    self_contained: yes
+    smart: yes
+    toc: yes
+    toc_depth: 5
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r libs-and-functions, echo = F, message = FALSE, warning=FALSE}
+library("Cairo")
+library("tidyverse")
+library("Seurat")
+library("yaml")
+library("ggplot2")
+library("cowplot")
+library("clustree")
+library("naturalsort")
+library("reshape2")
+library("patchwork")
+library("ggthemes")
+library("kableExtra")
+library("scico")
+library("semla")
+library("scales")
+library("ggrepel")
+library("mixtools")
+
+#bioc
+library("clusterProfiler")
+
+
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# Functions
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+source("code/helper/Rmarkdown-style.R")
+theme_set(mytheme(base_size = 7))
+
+```
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE, cache=F}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  error = FALSE,
+  message = FALSE,
+  cache = FALSE,
+  warning = FALSE,
+  results = TRUE,
+  fig.align = 'center',
+  fig.show = 'hold',
+  autodep = TRUE,
+  dpi = 96,
+  dev = c('CairoPNG') # alternative: dev = c('png') type = 'cairo'
+)
+```
+
+```{r manifest-and-objects, echo=F}
+manifest = yaml.load_file("./assets/manifest.yaml")
+current_sample = scan(file.path(manifest$workdata_parent, ".tmp/active_sample"), what = "character", quiet = T)
+sample_manifest = manifest[[current_sample]]
+
+default_plot_focus = sample_manifest$crop_area
+source("code/helper/FG_plotting_functions.R")
+base_pt_size = estim_point_size(sample_manifest)
+
+work.dir = file.path(manifest$workdata_parent, sample_manifest$workdata)
+se = readRDS(file.path(work.dir, "06_seurat.rds"))
+
+obj = readRDS(file.path(work.dir, "05_seurat_deconv_results.rds"))
+CARD_obj_broad = obj$CARD_obj_broad
+CARD_obj_medium = obj$CARD_obj_medium
+CARD_obj_fine = obj$CARD_obj_fine
+
+ref_collapsing_file = "assets/single_cell_reference/cell_type_state_matching.tsv"
+celltype_collapsing = read_tsv(ref_collapsing_file)
+
+obj.mrkrs.ora = readRDS(file.path(work.dir, "07_cluster_markers.rds"))
+
+# Cluster marker
+markers = obj.mrkrs.ora$cluster.marker.wlcxn
+dgea.pvalue = obj.mrkrs.ora$dgea.pvalue
+markers.sign = subset(markers, p_val_adj < dgea.pvalue)
+
+# ORA
+res.cP.cc.go = obj.mrkrs.ora$res.cP.cc.go
+res.cP.cc.go.sim = obj.mrkrs.ora$res.cP.cc.go.sim
+ora.oe = obj.mrkrs.ora$tops.l.oe
+ora.pvalue = obj.mrkrs.ora$ora.pvalue
+
+cl.res = obj.mrkrs.ora$cl.res
+se$seurat_clusters = se[[cl.res]]
+Idents(se) = "seurat_clusters"
+
+# emulated ggplot2 default colors as explained here: https://stackoverflow.com/a/8197703
+gg_color_hue <- function(n) {
+  hues = seq(15, 375, length = n + 1)
+  hcl(h = hues, l = 65, c = 100)[1:n]
+}
+cl.col = gg_color_hue(length(levels(se$seurat_clusters)))
+names(cl.col) = levels(se$seurat_clusters)
+
+
+#  outdated
+# # Add sizebar with choosable location for faceted plots, 
+# # largely copied from STutility/semla
+# # the originally used STutility:::draw_scalebar function 
+# # conflicts with faceting plots, so this here does the
+# # same calculations but replaces all geom_segment calls 
+# # with annotate(geom = segment, ...) which are more compatible
+# # with faceting
+# add_sb_to_faceted_plot <- function(p, se, x = 0.85, y = 0.17, 
+#                            sample.index = 1, 
+#                            dark.theme = F,
+#                            sb.size = 2.5){  
+#   pixels.per.um <- GetStaffli(se)@pixels.per.um[sample.index]
+#   dims <- GetStaffli(se)@dims[[sample.index]][2:3] %>% as.numeric()
+#   hewidth <- dims[1]
+#   sb500 <- pixels.per.um * 500
+#   x_start <- x*hewidth
+#   x_end <- x*hewidth + sb500
+#   y_start <- (1-y)*dims[2]
+#   dx <- hewidth - x_end
+#   if (dx < 0) {
+#     x_start <- x_start + dx * 2
+#     x_end <- x_end + dx * 2
+#   }
+#   if (sb.size == 0) {
+#     return(p)
+#   }
+#   end.width <- sb.size/25
+#   mid.width <- sb.size/50
+#   sb.color = ifelse(dark.theme, "white", "black")
+#   p <- p + annotate("segment", x = x_start, xend = x_end, y = y_start, yend = y_start, color = sb.color) +
+#       annotate("segment", color = sb.color, 
+#                x = x_start, xend = x_start, 
+#                y = y_start - (x_end - x_start)*end.width, yend = y_start + (x_end - x_start)*end.width) +
+#       annotate("segment", color = sb.color, 
+#                x = x_start + (x_end - x_start)/5, xend = x_start + (x_end - x_start)/5, 
+#                y = y_start - (x_end - x_start)*mid.width, yend = y_start + (x_end - x_start)*mid.width) +
+#       annotate("segment", color = sb.color, 
+#                x = x_start + 2*(x_end - x_start)/5, xend = x_start + 2*(x_end - x_start)/5, 
+#                y = y_start - (x_end - x_start)*mid.width, yend = y_start + (x_end - x_start)*mid.width) +
+#       annotate("segment", color = sb.color, 
+#                x = x_start + 3*(x_end - x_start)/5, xend = x_start + 3*(x_end - x_start)/5, 
+#                y = y_start - (x_end - x_start)*mid.width, yend = y_start + (x_end - x_start)*mid.width) +
+#       annotate("segment", color = sb.color, 
+#                x = x_start + 4*(x_end - x_start)/5, xend = x_start + 4*(x_end - x_start)/5, 
+#                y = y_start - (x_end - x_start)*mid.width, yend = y_start + (x_end - x_start)*mid.width) +
+#       annotate("segment", color = sb.color, 
+#                x = x_end, xend = x_end, 
+#                y = y_start - (x_end - x_start)*end.width, yend = y_start + (x_end - x_start)*end.width) +
+#       annotate(geom = "text", color = sb.color, 
+#                x = x_start + (x_end - x_start)/2, 
+#                y = y_start + (x_end - x_start)/3, label = paste0("500 ", "\u03bcm"), size = sb.size)
+#   
+#   return(p)
+# }
+
+# prep for high-resolution HE image
+se.large = readRDS(file.path(work.dir, "01_seurat_full.rds"))
+
+```
+
+
+```{r sample-title, results='asis', echo = FALSE}
+sample_full_name = sample_manifest$full_name
+cat("Sample: ", sample_full_name, "\n")
+```
+
+Author: Florian Große (Last updated: `r Sys.Date()`)
+
+# HE Image
+
+```{r HE-image, fig.width=8.5, fig.asp=1., fig.show = 'hold', fig.cap=figRef("HE-image-ref", ""), echo=T, eval=T, dpi=192}
+p = feature_overlay(
+    se.large,
+    crop_area = NULL,
+    features = "nFeature_Spatial",
+    pt_alpha = 0,
+    add_scalebar = T,
+    scalebar_height = 0.06,
+    scalebar_gg = scalebar(x = 1000, breaks = 5),
+    scalebar_position = c(0.7, 0.7),
+    
+) &
+  ggtitle(NULL, subtitle = NULL) &
+  theme(
+    legend.position = "none",
+    axis.title = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank()
+  ) 
+# remove scalebar border
+p[[1]][[2]] = p[[1]][[2]] + theme(panel.border = element_blank())
+rm(se.large)
+p
+```
+
+<div class="alert alert-info">
+  Following cluster resolution is used for downstream analysis.: `r I(gsub(".*res.", "", cl.res))`
+</div>
+
+# Selected Clustering on UMAP and Histo
+
+```{r umap, fig.width=5, fig.show = 'hold', fig.cap=figRef("umap-ref", ""), echo=T, eval=T}
+DimPlot(se, group.by = "seurat_clusters", pt.size = .5, reduction = "umap") +
+  mytheme() +
+  theme(
+    aspect.ratio = 1 ,
+    legend.position = "right",
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    axis.ticks = element_blank(),
+    plot.title = element_text(size = rel(1), hjust = .5)
+  ) +
+  ggtitle(NULL) +
+  scale_colour_manual(values = cl.col) +
+  guides(colour = guide_legend(title = "Cluster", ncol = 1, override.aes = list(size=8)))
+```
+
+```{r cluster-overlay-single, fig.width=5, fig.asp=1, fig.show = 'hold', fig.cap=figRef("cluster-overlay-single-ref", ""), echo=T, eval=T}
+p = feature_overlay_discrete(
+  se, 
+  features = "seurat_clusters",
+  pt.size = 1.5,
+  add_scalebar = T,
+  scalebar_height = 0.09,
+  scalebar_position = c(0.7, 0.8),
+  colors = cl.col
+  ) &
+  theme(
+    axis.title = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    panel.spacing = unit(1, "lines")
+  ) &
+  guides(fill = guide_legend(title = "Cluster", ncol = 1, override.aes = list(size=8))) &
+  ggtitle(NULL, subtitle = NULL)
+# remove scalebar border
+p[[1]][[2]] = p[[1]][[2]] + theme(panel.border = element_blank())
+p[[1]][[3]] = p[[1]][[3]] + theme(panel.border = element_blank()) # for whatever reason, with the current semla version this exists twice
+
+p
+```
+
+```{r cluster-overlay, fig.width=8.5, fig.asp=1, fig.show = 'hold', fig.cap=figRef("cluster-overlay-ref", ""), echo=T, eval=T}
+# p = FeatureOverlay(
+#   se,
+#   features = "seurat_clusters",
+#   pt.size = 1,
+#   pt.alpha = 1,
+#   add.alpha = F,
+#   show.sb = F,
+#   pt.border = T)
+# p = add_sb_to_faceted_plot(p, se) +
+#   facet_wrap( ~ seurat_clusters) +
+#   coord_equal() +
+#   theme(
+#     axis.title = element_blank(),
+#     axis.text = element_blank(),
+#     axis.ticks = element_blank(),
+#     strip.text = element_blank(), # disables redundant numbering above each subplot
+#     panel.spacing = unit(1, "lines")
+#   ) +
+#   ggtitle(NULL, subtitle = NULL) +
+#   scale_fill_manual(values = cl.col) +
+#   guides(fill = guide_legend(title = "Cluster", ncol = 1, override.aes = list(size=8)))
+# 
+# p
+
+# TODO: currently missing the legend but this is the same as in the picture above, so no big deal
+MapLabels(se, 
+          column_name = "seurat_clusters", 
+          section_number = 1,
+          pt_size = 0.8, 
+          pt_stroke = 0.1,
+          image_use = "transformed", 
+          crop_area = default_plot_focus,
+          split_labels = T, 
+          colors = cl.col, drop_na = T) & 
+  theme(legend.position = "none") &
+  ggtitle(NULL, subtitle = NULL)
+
+```
+
+# Selected Module Scores
+
+Module scores were calculated as average log-expression minus sampled backgound expression for chosen gene panels and *without* normalizing spots to 10.000 counts each!
+The following module scores are displayed overlayed on the HE image and as coloring of the UMAP spots:
+
+* From Jerby-Arnon and Solé-Boldo datasets: 
+  * Malignant (Melanoma Cells) for normalized AND non-normalized spot expression
+  * T cells
+  * NK cells
+  * Macrophages and DCs
+  * Endothelial cells
+  * Fibroblasts (and CAFs)
+  * B cells
+  * Keratinocytes
+  * Pericytes
+* From PanglaoDB: 
+  * Keratinocytes
+  * Endothelial cells
+  * Fibroblasts
+  * Stromal cells
+* From Buffa et al. 2010:
+  * Full (51) and reduced (15) Hypoxia "Metagene"
+
+Jerby-Arnon/Solé-Boldo Erithrocytes Geneset (really just HBB, HBA2, HBA1, HBD) is uninteresting in all samples, so was left out.
+
+Color scale was adjusted so that the minimum value displayed is 0 and the maximum value displayed is clamped at the 99.5% quantile of the score distribution (to attenuate the effect of strongly positive spots on the visualization) but never less than 0.4 (so that scores that are very low everywhere are directly recognizable as such).
+
+## Immune Cells
+
+```{r module-scores-immu, fig.width=8.5, fig.asp=.65, fig.show = 'hold', fig.cap=figRef("module-scores-immu-ref", ""), echo=T, eval=T}
+immu.scores = c("T.cells_logcounts", "B.cells_logcounts", "NK.cells_logcounts", "macrophages.and.dendritic.cells_logcounts")
+immu.score.names = c("T Cells", "B Cells", "NK Cells", "Macrophages/DCs")
+for (i in seq_along(immu.scores)){
+  plotmax = max(quantile(unlist(se[[immu.scores[i]]]), probs = 0.995), 0.4)
+  
+  p2 = feature_overlay(se, immu.scores[i], titles = "", limits = c(0., plotmax), oob = scales::squish, scalename = "Score")
+  p1 = FeaturePlot(se, immu.scores[i], min.cutoff = 0, max.cutoff = plotmax) + 
+    ggtitle(NULL, subtitle = NULL) + 
+    scale_color_scico(palette = "romaO", end = 0.8, direction = -1, limits = c(0, plotmax)) +
+    theme(
+      legend.position = "none",
+      aspect.ratio = 1.
+    )
+  plot(plot_grid(p1, p2, ncol = 2, axis = "tb", align = "h", labels = c(immu.score.names[i], " "), label_x = 0.5 ))
+}
+```
+
+## Stromal Cells
+
+### Jerby-Arnon + Solé-Boldo
+
+```{r module-scores-stroma, fig.width=8.5, fig.asp=.65, fig.show = 'hold', fig.cap=figRef("module-scores-stroma-ref", ""), echo=T, eval=T}
+stroma.scores = c("endothelial.cells_logcounts", "fibroblasts_logcounts", "pericytes_logcounts")
+stroma.score.names = c("Endothelial Cells", "Fibroblasts", "Pericytes")
+for (i in seq_along(stroma.scores)){
+  plotmax = max(quantile(unlist(se[[stroma.scores[i]]]), probs = 0.995), 0.4)
+  
+  p2 = feature_overlay(se, stroma.scores[i], titles = "", limits = c(0., plotmax), oob = scales::squish, scalename = "Score")
+  p1 = FeaturePlot(se, stroma.scores[i], min.cutoff = 0, max.cutoff = plotmax) + 
+    ggtitle(NULL, subtitle = NULL) + 
+    scale_color_scico(palette = "romaO", end = 0.8, direction = -1, limits = c(0, plotmax)) +
+    theme(
+      legend.position = "none",
+      aspect.ratio = 1.
+    )
+  plot(plot_grid(p1, p2, ncol = 2, axis = "tb", align = "h", labels = c(stroma.score.names[i], " "), label_x = 0.5 ))
+}
+```
+
+### PanglaoDB
+
+I added the corresponding PanglaoDB genesets here to double-check the distribution of stromal cells + smooth muscle cells.
+
+```{r module-scores-stroma-panglao, fig.width=8.5, fig.asp=.65, fig.show = 'hold', fig.cap=figRef("module-scores-stroma-panglao-ref", ""), echo=T, eval=T}
+stroma.scores = c("Fibroblasts_Panglao_logcounts", "Endothelial.cells_Panglao_logcounts", "Stromal.cells_Panglao_logcounts", "Smooth.muscle.cells_Panglao_logcounts")
+stroma.score.names = c("PanglaoDB Fibroblasts", "PanglaoDB Endothelial Cells", "PanglaoDB Stromal Cells", "PanglaoDB Smooth Muscle Cells")
+for (i in seq_along(stroma.scores)){
+  plotmax = max(quantile(unlist(se[[stroma.scores[i]]]), probs = 0.995), 0.4)
+  
+  p2 = feature_overlay(se, stroma.scores[i], titles = "", limits = c(0., plotmax), oob = scales::squish, scalename = "Score")
+  p1 = FeaturePlot(se, stroma.scores[i], min.cutoff = 0, max.cutoff = plotmax) + 
+    ggtitle(NULL, subtitle = NULL) + 
+    scale_color_scico(palette = "romaO", end = 0.8, direction = -1, limits = c(0, plotmax)) +
+    theme(
+      legend.position = "none",
+      aspect.ratio = 1.
+    )
+  plot(plot_grid(p1, p2, ncol = 2, axis = "tb", align = "h", labels = c(stroma.score.names[i], " "), label_x = 0.5 ))
+}
+```
+
+
+## Malignant Cells / Melanocytes
+
+```{r module-scores-malignant, fig.width=8.5, fig.asp=.65, fig.show = 'hold', fig.cap=figRef("module-scores-malignant-ref", ""), echo=T, eval=T}
+malignant.scores = c("melanocytes.malignant.cells_logcounts", "melanocytes.malignant.cells_normalized")
+malignant.score.names = c("Malignant/Melanocytes", "Size-normalized Malignant/Melanocytes")
+for (i in seq_along(malignant.scores)){
+  plotmax = max(quantile(unlist(se[[malignant.scores[i]]]), probs = 0.995), 0.4)
+  
+  p2 = feature_overlay(se, malignant.scores[i], titles = "", limits = c(0., plotmax), oob = scales::squish, scalename = "Score")
+  p1 = FeaturePlot(se, malignant.scores[i], min.cutoff = 0, max.cutoff = plotmax) + 
+    ggtitle(NULL, subtitle = NULL) + 
+    scale_color_scico(palette = "romaO", end = 0.8, direction = -1, limits = c(0, plotmax)) +
+    theme(
+      legend.position = "none",
+      aspect.ratio = 1.
+    )
+  plot(plot_grid(p1, p2, ncol = 2, axis = "tb", align = "h", labels = c(malignant.score.names[i], " "), label_x = 0.5 ))
+}
+```
+
+## Epidermis
+
+```{r module-scores-epidermis, fig.width=8.5, fig.asp=.65, fig.show = 'hold', fig.cap=figRef("module-scores-epidermis-ref", ""), echo=T, eval=T}
+epidermis.scores = c("keratinocytes_logcounts", "Keratinocytes_Panglao_logcounts")
+epidermis.score.names = c("Jerby-Arnono/Solé-Boldo Keratinocytes", "PanglaoDB Keratinocytes")
+for (i in seq_along(epidermis.scores)){
+  plotmax = max(quantile(unlist(se[[epidermis.scores[i]]]), probs = 0.995), 0.4)
+  
+  p2 = feature_overlay(se, epidermis.scores[i], titles = "", limits = c(0., plotmax), oob = scales::squish, scalename = "Score")
+  p1 = FeaturePlot(se, epidermis.scores[i], min.cutoff = 0, max.cutoff = plotmax) + 
+    ggtitle(NULL, subtitle = NULL) + 
+    scale_color_scico(palette = "romaO", end = 0.8, direction = -1, limits = c(0, plotmax)) +
+    theme(
+      legend.position = "none",
+      aspect.ratio = 1.
+    )
+  plot(plot_grid(p1, p2, ncol = 2, axis = "tb", align = "h", labels = c(epidermis.score.names[i], " "), label_x = 0.5 ))
+}
+```
+
+
+The clustering UMAP should be manually annotated, if at all, since this is hard to automate for each sample and different groups of tissue type found in each.
+
+# Marker genes for clusters
+
+Genes that are significantly differentially expressed (FDR < `r I(dgea.pvalue)`)
+in one cluster compared to all other spots. Here we use the Wilcoxon rank sum test
+implemented in the Seurat R package. 
+
+Function used: Seurat::FindMarkers(obj, clusterX, min.pct = 0.5)  This function was called for each of the clusters found
+
+## Top 10 marker genes per cluster
+
+Top 10 marker genes (FDR < `r I(dgea.pvalue)`) ordered by **positive** log2-fold change.
+
+```{r marker-genes-heatmap-prep, echo=T, eval=T}
+top = subset(markers.sign, (avg_log2FC > 0)) %>% group_by(cluster) %>% 
+  mutate(logrank = dense_rank(desc(avg_log2FC)), pvalrank = dense_rank(p_val_adj)) %>%
+  slice_min(logrank, n = 10)
+```
+
+```{r marker-genes-tops, fig.width=8.5, fig.asp=0.1+(nrow(top)/75), fig.show = 'hold', fig.cap=figRef("marker-genes-tops-ref", ""), echo=T, eval=T}
+DoHeatmap(se, features  = top$gene, raster = F, angle = 0, size=3, hjust=0, draw.lines = F, assay = "Spatial", group.color = cl.col) +
+  guides(color = "none") +
+  scale_fill_scico(palette = "vik", end = 1, direction = 1, midpoint = 0.) +
+  mytheme() +
+  theme(axis.line=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks=element_blank(),
+        axis.title=element_blank(),
+        line = element_blank(),
+        panel.background=element_blank(),
+        panel.border=element_blank(),
+        plot.background=element_blank()) +
+  labs(colour = "Cluster", fill = "Standardized\nexpression")
+```
+
+## All marker genes per cluster
+
+Showing up- and down-regulated genes across all clusters. An adjusted p value < `r I(dgea.pvalue)` is indicated in red, while an adjusted p value ≥ `r I(dgea.pvalue)` is indicated in black.
+
+```{r marker-genes, fig.width=8.5, fig.asp=.7, fig.show = 'hold', fig.cap=figRef("marker-genes-ref", "."), echo=T, eval=T}
+cluster.de.summary = markers.sign %>%
+    dplyr::mutate(IsUp = avg_log2FC > 0) %>% 
+    dplyr::group_by(cluster) %>%  
+    dplyr::summarise(Up = sum(IsUp), Down = sum(!IsUp)) %>% 
+    dplyr::mutate(Down = -Down) %>%
+    tidyr::gather(key = "Direction", value = "Count", -cluster)
+
+cl.label = paste0(
+  "Up: ",
+  subset(cluster.de.summary, Direction == "Up")$Count,
+  "\nDown: ",
+  abs(subset(cluster.de.summary, Direction == "Down")$Count)
+)
+
+top5_up = markers.sign %>%
+  dplyr::filter(avg_log2FC > 0) %>%
+  dplyr::group_by(cluster) %>%
+  dplyr::top_n(n = 5, wt = avg_log2FC)
+top5_up$GENE_CL = paste0(top5_up$gene, "_", top5_up$cluster)
+
+top5_down = markers.sign %>% 
+  dplyr::filter(avg_log2FC < 0) %>%
+  dplyr::group_by(cluster) %>%
+  dplyr::top_n(n = -5, wt = avg_log2FC)
+top5_down$GENE_CL = paste0(top5_down$gene, "_", top5_down$cluster)
+
+markers$GENE_CL = paste0(markers$gene, "_", markers$cluster)
+markers = markers %>% mutate(label_up = ifelse(GENE_CL %in% top5_up$GENE_CL, gene, ""))
+markers = markers %>% mutate(label_down = ifelse(GENE_CL %in% top5_down$GENE_CL, gene, ""))
+markers$SIGNIFICANT = markers$p_val_adj < dgea.pvalue
+markers$SIGNIFICANT = factor(markers$SIGNIFICANT, levels = c(TRUE, FALSE))
+markers$cluster = as.numeric(markers$cluster)
+
+axis.max = max(abs(markers$avg_log2FC)) + .1
+no.cl = length(unique(markers$cluster))
+top1.up= markers.sign %>% group_by(cluster) %>% slice_max(order_by = avg_log2FC, n = 1, with_ties = F)
+top1.down= markers.sign %>% group_by(cluster) %>% slice_min(order_by = avg_log2FC, n = 1, with_ties = F)
+pos = position_jitter(width = 0.35, seed = 1234)
+
+ggplot() +
+  # ylim(c(-axis.max, axis.max)) +
+  geom_hline(yintercept = 0) +
+  geom_rect(
+    data = data.frame(xmin = seq(-0.4,no.cl-1), xmax = seq(-0.2,no.cl-1) + .6, ymin = top1.down$avg_log2FC - .1, ymax = top1.up$avg_log2FC + .1),  
+    aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax), fill = "#DDDDDD", alpha = .3) +
+  geom_rect(
+    data = data.frame(xmin = seq(-0.5,no.cl-1), xmax = seq(-0.5,no.cl-1) + 1, ymin = -.3, ymax = .3),
+    aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax), fill = cl.col, colour = "black", lwd = .2) +  
+  geom_jitter(
+    data = subset(markers, SIGNIFICANT == F),
+    aes(x= cluster, y= avg_log2FC, color = SIGNIFICANT), position = pos, size = .3
+  )  +
+  geom_jitter(
+    data = subset(markers, SIGNIFICANT == T),
+    aes(x= cluster, y= avg_log2FC, color = SIGNIFICANT), position = pos, size = .3
+  )  +
+  geom_text_repel(
+    data = subset(markers, SIGNIFICANT == T),
+    mapping = aes(x = cluster, avg_log2FC, label = label_up),
+    position = pos, size = 2, max.overlaps = 30
+  ) +
+  geom_text_repel(
+    data = subset(markers, SIGNIFICANT == T),
+    mapping = aes(x = cluster, avg_log2FC, label = label_down),
+    position = pos, size = 2, max.overlaps = 30
+  ) +
+  mytheme(base_size = 8) +
+  theme(
+    aspect.ratio = 0.618,
+    legend.position="bottom",
+    axis.line.y = element_line(colour = "black"),
+    panel.border = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  ) +
+  scale_color_manual(values = c("TRUE" = "#009988", "FALSE" = "black")) +
+  labs(x = "Cluster", y = "average log2-fold-change", colour = paste0("FDR < ", 0.05))  +
+  annotate("text", x = 0:(no.cl-1), y = 0, label = 0:(no.cl-1), colour = "white", size = 4) +
+  annotate("text", x = 0:(no.cl-1), y = max(abs(markers$avg_log2FC)) + .5, label = cl.label, colour = "#009988", size = 2.5) +
+  guides(colour = guide_legend(override.aes = list(size=3)))
+```
+
+## Enrichment test for GO biolocial process terms (FDR < `r I(ora.pvalue)`) 
+
+Enrichment test based on cluster markers (FDR < `r I(dgea.pvalue)`) with **positive** log2-fold change.
+
+## Top 10 by adjusted p-value
+
+```{r ora_pre, echo=F, eval=T}
+
+ora_dotplot = function(.tops = 10, .by = c("richFactor", "p.adjust"), cluster_order = NULL) {
+  .by <- match.arg(.by)
+  
+  res = res.cP.cc.go.sim@compareClusterResult
+  res = mutate(res, totalGenes = as.numeric(sub("\\d+/", "", GeneRatio)),
+               richFactor = Count / as.numeric(sub("/\\d+", "", BgRatio)))
+  # at least 5 genes or 10% (but never less than 2) of the positive marker genes of a cluster must 
+  # belong to a term for it to be included
+  res = res[(res$Count >= pmin(5, pmax(2, res$totalGenes*0.1))), ]
+  res$geneID = NULL
+  res$ID_CL = paste0(res$ID, "_", res$Cluster)
+  
+  # New line for long Description strings
+  for (i in 1:nrow(res)) {
+      res$Description[i] = paste(base::strwrap(res$Description[i], 70), collapse="\n")
+  }
+  
+  res.cp = res
+  
+  tops.l = lapply(split(res, res$Cluster), function(x){
+    if (.by == "richFactor") {
+      x = x[order(x$richFactor, decreasing = T), ]  # sort by enrichment factor
+    } else {
+      x = x[order(x$p.adjust, decreasing = F), ]    # sort by adjusted p value
+    }
+    x = head(x, .tops)
+    x
+  })
+  
+  tops.l = tops.l[sapply(tops.l, function(x) dim(x)[1]) > 0]
+  tops = as.data.frame(data.table::rbindlist(tops.l))
+  tops$ID_CL = paste0(tops$ID, "_", tops$Cluster)
+  res.cp = subset(res.cp, ID %in% tops$ID)
+  
+  lvls = tops.l[[1]]$Description
+  lvls = c(lvls, setdiff(res.cp$Description, lvls))
+  res.cp$Description = factor(res.cp$Description, levels = rev(lvls))
+  res.cp$Cluster = factor(res.cp$Cluster, levels = unique(naturalsort::naturalsort(res.cp$Cluster)))
+  
+  res.cp$TOPS = res.cp$ID_CL %in% tops$ID_CL
+  
+  
+  ora = ggplot(res.cp, aes(x = Cluster, y = Description)) +
+    geom_point(aes(fill = p.adjust, size = richFactor), pch=21, stroke=.3) +
+    geom_point(aes(colour = TOPS, size = richFactor), pch=21, stroke=.5) +
+    scale_size(range = c(2,6)) +
+    mytheme_grid(base_size = 8) +
+    theme(
+      panel.grid.minor = element_blank(),
+      panel.grid.major.x = element_blank(),
+      axis.ticks = element_blank(),
+      legend.position = "right"
+    ) +
+    guides(fill = guide_colorbar(
+      title.position = 'top', title.hjust = 0, barwidth = unit(.5, 'lines'), barheight = unit(8, 'lines'),
+      title = "Adjusted\np-value", order = 3)
+    ) + 
+    guides(size = guide_legend(
+      ncol = 1, override.aes =, title.hjust = .5, title.position = "top",
+      title = "Rich factor", order = 1)
+    ) +
+    guides(colour = guide_legend(
+      ncol = 1, override.aes =, title.hjust = .5, title.position = "top",
+      title = "Tops", order = 2)
+    ) +
+    # scale_fill_scico(palette = 'batlow', direction = -1, end = .7)  +
+    scale_fill_scico(palette = 'bilbao', begin = .2, end = .8, direction = -1) +
+    scale_colour_manual(values = c("#555555", "#44AA99")) +
+    xlab("Cluster") + ylab(NULL)  
+
+  if (!is.null(cluster_order)){
+    ora = ora + lims(x = cluster_order)
+  }
+    
+  ora
+}
+
+cl.labels = paste(sort(unique(se$seurat_clusters)))
+ora_10_p = ora_dotplot(10, cluster_order = cl.labels, .by = "p")
+ora_10_e = ora_dotplot(10, cluster_order = cl.labels, .by = "richFactor")
+# analyse how many cols we need and adjust plot hight accoridngly
+ora_plot_asp = (max(ggplot_build(ora_10_p)$data[[1]]$y)+4)*0.0188
+```
+
+```{r ora_top_10_p, fig.width=8.5, fig.asp=ora_plot_asp, fig.show = 'hold', fig.cap=figRef("ora_top_10_p-ref", "The dot size indicates the rich factor, which is the number of GEP genes in the GO term divided by the number of background genes in that term. Colours indicate the adjusted p-values of the significantly enriched GO term. The 10 most significant pathways (sorted by adjusted p-value) for each cluster are shown. How to read: For example, Pathway A is significantly enriched in Clusters 1 and 2. Pathway A is in the 10 most significant pathways in cluster 1, but not in cluster 2. To capture this information, Pathway A is included in Cluster 2, making the comparison in the dot plot more meaningful. The dot border indicates whether the pathways are among the 10 most significant."), echo=T, eval=T}
+
+plot(ora_10_p)
+```
+
+## Top 10 by enrichment
+
+```{r ora_top_10_e, fig.width=8.5, fig.asp=ora_plot_asp, fig.show = 'hold', echo=T, eval=T}
+
+plot(ora_10_e)
+```
+
+## Table of GSEA
+
+<br>
+
+* Meaning of BgRatio, M/N and GeneRatio k/n
+  * M = size of the gene-set (e.g. number of genes in the cell cycle term). More precisely, the total number of genes (ENTREZ Gene IDs) from the universe found in this gene-set.
+  * N = size of all unique genes in the collection of gene-sets (e.g. the GO term collection for BPs). More precisely, the total number of genes (ENTREZ Gene IDs) from the universe found in this collection
+  * k = size of overlap of genes with a specific gene-set (e.g. cell cycle term). Only unique ENTREZ Gene IDs were considered.
+  * n = size of overlap of genes with all genes in the collection of gene-sets (e.g. the GO term collection for BPs). Only unique ENTREZ Gene IDs were considered.
+  * The rich factor is k / M
+
+<br>
+
+```{r table_go, eval=T, results=T}
+cp.res = res.cP.cc.go.sim@compareClusterResult
+cp.res = cp.res[cp.res$Count >= 5, ]
+cp.res = cp.res[naturalorder(cp.res$Cluster), ]
+
+cp.res = cp.res %>%
+  dplyr::rename(GO_ID = ID, Term = Description, Gene_Members = geneID) %>%
+  dplyr::mutate(go_description_link = paste0('<a href=\'http://amigo.geneontology.org/amigo/term/', GO_ID,'\' target=\'_blank\'>',Term,'</a>')) %>%
+  dplyr::mutate(q_value = as.numeric(qvalue)) %>%
+  dplyr::mutate(p_value = as.numeric(pvalue)) %>%
+  dplyr::mutate(Adjusted_p_value = as.numeric(p.adjust)) %>%
+  dplyr::mutate(q_value = dplyr::if_else(!is.na(q_value), as.numeric(formatC(q_value, format = "e", digits = 2)), as.numeric(NA))) %>%
+  dplyr::mutate(p_value = dplyr::if_else(!is.na(p_value), as.numeric(formatC(p_value, format = "e", digits = 2)), as.numeric(NA))) %>%
+  dplyr::mutate(Adjusted_p_value = dplyr::if_else(!is.na(Adjusted_p_value), as.numeric(formatC(Adjusted_p_value, format = "e", digits = 2)), as.numeric(NA))) %>%
+  tidyr::separate(BgRatio, c('num_background_hits','num_background_all'), sep='/',remove = F, convert = T) %>% 
+  dplyr::mutate(Rich_factor = round(as.numeric(Count /num_background_hits), digits = 3))
+
+cp.res$Gene_Members = gsub("\\/", ", ", cp.res$Gene_Members)
+
+cp.res = 
+  cp.res %>%
+  dplyr::select(Cluster, Term, Rich_factor, Adjusted_p_value, BgRatio, GeneRatio, Gene_Members, Count, GO_ID, q_value, p_value) %>%
+  dplyr::group_by(Cluster) %>% 
+  dplyr::arrange(Cluster, desc(Rich_factor))
+
+
+cp.res%>%
+  DT::datatable(
+    rownames = FALSE, escape = F, width = '100%', extensions = c('FixedColumns', 'Scroller', 'Buttons', 'KeyTable', "Responsive"),
+    options = list(
+    dom = 'Bfrtip',
+    buttons = c('copy', 'csv', 'excel'),
+    deferRender = F,
+    scroller = F
+    )
+)
+```
