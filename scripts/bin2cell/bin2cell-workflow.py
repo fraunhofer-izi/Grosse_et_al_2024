@@ -13,7 +13,7 @@ from pathlib import Path
 import sys
 
 import scanpy as sc
-
+import scipy
 import bin2cell as b2c
 
 
@@ -198,11 +198,13 @@ def main():
         scale_he_image(adata=adata, mpp=mpp, save_path=stardist_he_tiff)
         adata = destripe_anndata(adata=adata, h5_out_dir=h5_out_dir)
         # Apply stardist to microscopy image
-        adata, exp_lbl_he = apply_stardist(
+        #adata, exp_lbl_he = apply_stardist(
+        apply_stardist(
             image_path=stardist_he_tiff,
             labels_npz_path=he_labels_npz,
             stardist_model="2D_versatile_he",
         )
+        exp_lbl_he = scipy.sparse.load_npz(he_labels_npz)
         # Insert segmentation labels created by stardist
         he_label_key = "labels_he"
         insert_labels_from_npz(
@@ -219,6 +221,7 @@ def main():
             labels_npz_path=gex_labels_npz,
             stardist_model="2D_versatile_fluo",
         )
+
         gex_label_key = "labels_gex"
         insert_labels_from_npz(
             adata=adata, labels_key=gex_label_key, labels_npz_path=gex_labels_npz
