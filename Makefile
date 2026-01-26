@@ -1,4 +1,4 @@
-PHONY:
+PHONY: conda_env_create conda_env_export 00_download_data 00_generate_sc_reference 01_stain_deconvolution 02_bin2cell 03_tacco 04_rotate_sample
 
 conda_env_create: environment.yml
 	conda env create -f environment.yml
