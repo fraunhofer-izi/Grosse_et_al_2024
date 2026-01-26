@@ -7,11 +7,6 @@ Visium data, Visium HD Ligand-Receptor plots and survival analysis from Grosse e
 The code was developed in a RStudio Singularity container and you can therefore open it as
 an RStudio project, but all results should be replicable without this.
 
-### Singularity Container
-
-All scripts were developed in an Rstudio server running in a Singularity container.
-Package versions are controlled via renv which should allow anyone to replicate the exact state of package versions used to produce the results (see below).
-
 ## Reproduction
 
 For a full reproduction clone the repository, then follow the steps outlined 
