@@ -1,4 +1,4 @@
-# Grosse etal. 2026
+# Grosse et al. 2026
 
 This repository contains code used to produce the results in:
 
