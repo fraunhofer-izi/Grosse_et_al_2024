@@ -1,0 +1,710 @@
+---
+title: "Reference-based Deconvolution Results"
+output:
+  workflowr::wflow_html:
+    code_folding: hide
+    fig_caption: yes
+    number_sections: yes
+    pandoc_args: []
+    self_contained: yes
+    smart: yes
+    toc: yes
+    toc_depth: 5
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r libs-and-functions, echo = F, message = FALSE, warning=FALSE}
+library("Cairo")
+library("tidyverse")
+library("Seurat")
+library("yaml")
+library("ggplot2")
+library("cowplot")
+library("stats")
+library("naturalsort")
+library("reshape2")
+library("patchwork")
+library("scales")
+library("kableExtra")
+library("scico")
+library("semla")
+
+
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# Functions
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+source("code/helper/Rmarkdown-style.R")
+theme_set(mytheme(base_size = 7))
+
+```
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE, cache=F}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  error = FALSE,
+  message = FALSE,
+  cache = FALSE,
+  warning = FALSE,
+  results = TRUE,
+  fig.align = 'center',
+  fig.show = 'hold',
+  autodep = TRUE,
+  dpi = 80,
+  dev = c('CairoPNG') # alternative: dev = c('png') type = 'cairo'
+)
+```
+
+```{r manifest-and-objects, echo=F}
+manifest = yaml.load_file("./assets/manifest.yaml")
+current_sample = scan(file.path(manifest$workdata_parent, ".tmp/active_sample"), what = "character", quiet = T)
+sample_manifest = manifest[[current_sample]]
+
+default_plot_focus = sample_manifest$crop_area
+source("code/helper/FG_plotting_functions.R")
+base_pt_size = estim_point_size(sample_manifest)
+
+work.dir = file.path(manifest$workdata_parent, sample_manifest$workdata)
+
+obj = readRDS(file.path(work.dir, "05_seurat_deconv_results.rds"))
+se = obj$se
+CARD_obj_broad = obj$CARD_obj_broad
+CARD_obj_medium = obj$CARD_obj_medium
+CARD_obj_fine = obj$CARD_obj_fine
+RCTD_obj_medium = obj$RCTD_obj_medium
+
+ref_collapsing_file = "assets/single_cell_reference/cell_type_state_matching.tsv"
+celltype_collapsing = read_tsv(ref_collapsing_file)
+```
+
+```{r sample-title, results='asis', echo = FALSE}
+sample_full_name = sample_manifest$full_name
+cat("Sample: ", sample_full_name, "\n")
+```
+
+Author: Florian Große, Michael Rade (Last updated: `r Sys.Date()`)
+
+# CARD Deconvolution results {.tabset .tabset-pills}
+
+These are the deconvolution results generated with the CARD package and a single cell reference consisting of either melanoma or nevi cells from the Stubenvoll et al. 2025
+publication. (https://doi.org/10.1002/cac2.12651)
+
+## Broad {.tabset}
+
+Black spots have an estimated proportion <= 1%.
+Missing spots were not deconvolved (mostly due to too few counts present). 
+
+```{r CARD_broad, echo=FALSE, results='asis'}
+# remove cells that were not deconvolved due to too little genes present, 
+# because visualization functions complain otherwise
+tmp_broad = se %>% 
+  SubsetSTData(spots = rownames(CARD_obj_broad@Proportion_CARD)) %>%
+  AddMetaData(CARD_obj_broad@Proportion_CARD)
+  
+res <- lapply(sort(colnames(CARD_obj_broad@Proportion_CARD)), function(celltype) {
+  scalemax = max(0.3, max(CARD_obj_broad@Proportion_CARD[,celltype])+0.01)  
+  knitr::knit_child(text = c(
+    '',
+    '### `r paste(celltype)`',
+    '',
+    '```{r, echo=F, results=T, eval=T}',
+    '',
+    'feature_overlay(tmp_broad, celltype, limits = c(0.01, scalemax), scalename = "Cell Type Proportion", pt.size = base_pt_size*1.5) + theme(legend.key.width = unit(0.8, "lines"), legend.key.height = unit(3., "lines"))',
+    '',
+    '```',
+    ''
+  ), envir = environment(), quiet = T)
+})
+cat(unlist(res), sep = '\n\n')
+```
+
+## Medium {.tabset}
+
+Black spots have an estimated proportion <= 1%.
+Missing spots were not deconvolved (mostly due to too few counts present). 
+
+```{r CARD_medium, echo=FALSE, results='asis'}
+# remove cells that were not deconvolved due to too little genes present, 
+# because visualization functions complain otherwise
+tmp_medium = se %>% 
+  SubsetSTData(spots = rownames(CARD_obj_medium@Proportion_CARD)) %>%
+  AddMetaData(CARD_obj_medium@Proportion_CARD)
+  
+res <- lapply(sort(colnames(CARD_obj_medium@Proportion_CARD)), function(celltype) {
+  scalemax = max(0.3, max(CARD_obj_medium@Proportion_CARD[,celltype])+0.01)  
+  knitr::knit_child(text = c(
+    '',
+    '### `r paste(celltype)`',
+    '',
+    '```{r, echo=F, results=T, eval=T}',
+    '',
+    'feature_overlay(tmp_medium, celltype, limits = c(0.01, scalemax), scalename = "Cell Type Proportion", pt.size = base_pt_size*1.5) + theme(legend.key.width = unit(0.8, "lines"), legend.key.height = unit(3., "lines"))',
+    '',
+    '```',
+    ''
+  ), envir = environment(), quiet = T)
+})
+cat(unlist(res), sep = '\n\n')
+```
+
+## Fine {.tabset}
+
+Black spots have an estimated proportion <= 1%.
+Missing spots were not deconvolved (mostly due to too few counts present). 
+
+```{r CARD_fine, echo=FALSE, results='asis'}
+# remove cells that were not deconvolved due to too little genes present, 
+# because visualization functions complain otherwise
+tmp_fine = se %>% 
+  SubsetSTData(spots = rownames(CARD_obj_fine@Proportion_CARD)) %>%
+  AddMetaData(CARD_obj_fine@Proportion_CARD)
+  
+res <- lapply(sort(colnames(CARD_obj_fine@Proportion_CARD)), function(celltype) {
+  scalemax = max(0.3, max(CARD_obj_fine@Proportion_CARD[,celltype])+0.01)  
+  knitr::knit_child(text = c(
+    '',
+    '### `r paste(celltype)`',
+    '',
+    '```{r, echo=F, results=T, eval=T}',
+    '',
+    'feature_overlay(tmp_fine, celltype, limits = c(0.01, scalemax), scalename = "Cell Type Proportion", pt.size = base_pt_size*1.5) + theme(legend.key.width = unit(0.8, "lines"), legend.key.height = unit(3., "lines"))',
+    '',
+    '```',
+    ''
+  ), envir = environment(), quiet = T)
+})
+cat(unlist(res), sep = '\n\n')
+```
+
+
+
+
+
+
+
+
+
+
+# CARD Deconvolution Summed {.tabset .tabset-pills}
+
+Same as above, but cell type proportions were summed to a canonical set of broad classes and thresholded.
+
+## Broad Summed {.tabset}
+
+Black spots have an estimated proportion <= 1%.
+Missing spots were not deconvolved (mostly due to too few counts present). 
+
+Proportions of subtypes were summed together here.
+
+```{r CARD_broad_summed, echo=FALSE, results='asis'}
+sum_types_list = lapply(setNames(nm=unique(celltype_collapsing$sum_type)), function(ct){
+  unique(celltype_collapsing[celltype_collapsing$sum_type==ct,]$celltype_broad)
+})
+prop_summed = tibble(!!!lapply(sum_types_list, function(cts){
+  if (length(cts)>1) 
+  {
+    rowSums(CARD_obj_broad@Proportion_CARD[,cts])
+  } else {
+    CARD_obj_broad@Proportion_CARD[,cts]
+  }
+})) %>% as.data.frame()
+rownames(prop_summed) = rownames(CARD_obj_broad@Proportion_CARD)
+
+# remove cells that were not deconvolved due to too little genes present, 
+# because visualization functions complain otherwise
+tmp_broad = se %>% 
+  SubsetSTData(spots = rownames(prop_summed)) %>%
+  AddMetaData(prop_summed)
+  
+res <- lapply(sort(colnames(prop_summed)), function(celltype) {
+  scalemax = max(0.3, max(prop_summed[,celltype])+0.01)  
+  knitr::knit_child(text = c(
+    '',
+    '### `r paste(celltype)`',
+    '',
+    '```{r, echo=F, results=T, eval=T}',
+    '',
+    'feature_overlay(tmp_broad, celltype, limits = c(0.01, scalemax), scalename = "Cell Type Proportion", pt.size = base_pt_size*1.5) + theme(legend.key.width = unit(0.8, "lines"), legend.key.height = unit(3., "lines"))',
+    '',
+    '```',
+    ''
+  ), envir = environment(), quiet = T)
+})
+cat(unlist(res), sep = '\n\n')
+```
+
+### Melanoma/Immune  (>5%)
+
+```{r, echo=F, results=T, eval=T}
+# percentage deconvolution treshold for assigning spots as positive
+pct_thresh = 0.05
+
+tmp_broad[["tumor.immune.spots"]] =
+  ifelse(tmp_broad$Melanocytic_cells>=pct_thresh,
+         ifelse(tmp_broad$`T/NK_cells`>=pct_thresh,
+                "Both",
+                "Tumor"),
+         ifelse(tmp_broad$`T/NK_cells`>=pct_thresh,
+                "Immune",
+                "None")
+         )
+
+print(table(tmp_broad$tumor.immune.spots))
+
+feature_overlay_discrete(tmp_broad, "tumor.immune.spots", pt.size = base_pt_size*1.5) &
+  theme(legend.key.width = unit(0.8, "lines"), 
+        legend.key.height = unit(3., "lines")) &
+  scale_fill_manual(values = c(Both = "yellow", None = "black", Immune = "green", Tumor = "red"), name = paste0("Types exceeding ", sprintf("%2.0d", pct_thresh*100), "%")) & ggtitle(NULL, subtitle = NULL)
+```
+
+### Melanoma/Immune  (>10%)
+
+```{r, echo=F, results=T, eval=T}
+# percentage deconvolution treshold for assigning spots as positive
+pct_thresh = 0.1
+
+tmp_broad[["tumor.immune.spots"]] =
+  ifelse(tmp_broad$Melanocytic_cells>=pct_thresh,
+         ifelse(tmp_broad$`T/NK_cells`>=pct_thresh,
+                "Both",
+                "Tumor"),
+         ifelse(tmp_broad$`T/NK_cells`>=pct_thresh,
+                "Immune",
+                "None")
+         )
+
+print(table(tmp_broad$tumor.immune.spots))
+
+feature_overlay_discrete(tmp_broad, "tumor.immune.spots", pt.size = base_pt_size*1.5) &
+  theme(legend.key.width = unit(0.8, "lines"), 
+        legend.key.height = unit(3., "lines")) &
+  scale_fill_manual(values = c(Both = "yellow", None = "black", Immune = "green", Tumor = "red"), name = paste0("Types exceeding ", sprintf("%2.0d", pct_thresh*100), "%")) & ggtitle(NULL, subtitle = NULL)
+```
+
+### Melanoma/Immune  (>20%)
+
+```{r, echo=F, results=T, eval=T}
+# percentage deconvolution treshold for assigning spots as positive
+pct_thresh = 0.2
+
+tmp_broad[["tumor.immune.spots"]] =
+  ifelse(tmp_broad$Melanocytic_cells>=pct_thresh,
+         ifelse(tmp_broad$`T/NK_cells`>=pct_thresh,
+                "Both",
+                "Tumor"),
+         ifelse(tmp_broad$`T/NK_cells`>=pct_thresh,
+                "Immune",
+                "None")
+         )
+
+print(table(tmp_broad$tumor.immune.spots))
+
+feature_overlay_discrete(tmp_broad, "tumor.immune.spots", pt.size = base_pt_size*1.5) &
+  theme(legend.key.width = unit(0.8, "lines"), 
+        legend.key.height = unit(3., "lines")) &
+  scale_fill_manual(values = c(Both = "yellow", None = "black", Immune = "green", Tumor = "red"), name = paste0("Types exceeding ", sprintf("%2.0d", pct_thresh*100), "%")) & ggtitle(NULL, subtitle = NULL)
+```
+
+## Medium Summed {.tabset}
+
+Black spots have an estimated proportion <= 1%.
+Missing spots were not deconvolved (mostly due to too few counts present). 
+
+Proportions of subtypes were summed together here.
+
+```{r CARD_medium_summed, echo=FALSE, results='asis'}
+sum_types_list = lapply(setNames(nm=unique(celltype_collapsing$sum_type)), function(ct){
+  unique(celltype_collapsing[celltype_collapsing$sum_type==ct,]$celltype_medium)
+})
+prop_summed = tibble(!!!lapply(sum_types_list, function(cts){
+  if (length(cts)>1) 
+  {
+    rowSums(CARD_obj_medium@Proportion_CARD[,cts])
+  } else {
+    CARD_obj_medium@Proportion_CARD[,cts]
+  }
+})) %>% as.data.frame()
+rownames(prop_summed) = rownames(CARD_obj_medium@Proportion_CARD)
+
+# remove cells that were not deconvolved due to too little genes present, 
+# because visualization functions complain otherwise
+tmp_medium = se %>% 
+  SubsetSTData(spots = rownames(prop_summed)) %>%
+  AddMetaData(prop_summed)
+  
+res <- lapply(sort(colnames(prop_summed)), function(celltype) {
+  scalemax = max(0.3, max(prop_summed[,celltype])+0.01)  
+  knitr::knit_child(text = c(
+    '',
+    '### `r paste(celltype)`',
+    '',
+    '```{r, echo=F, results=T, eval=T}',
+    '',
+    'feature_overlay(tmp_medium, celltype, limits = c(0.01, scalemax), scalename = "Cell Type Proportion", pt.size = base_pt_size*1.5) + theme(legend.key.width = unit(0.8, "lines"), legend.key.height = unit(3., "lines"))',
+    '',
+    '```',
+    ''
+  ), envir = environment(), quiet = T)
+})
+cat(unlist(res), sep = '\n\n')
+```
+
+### Melanoma/Immune  (>5%)
+
+```{r, echo=F, results=T, eval=T}
+# percentage deconvolution treshold for assigning spots as positive
+pct_thresh = 0.05
+
+tmp_medium[["tumor.immune.spots"]] =
+  ifelse(tmp_medium$Melanocytic_cells>=pct_thresh,
+         ifelse(tmp_medium$`T/NK_cells`>=pct_thresh,
+                "Both",
+                "Tumor"),
+         ifelse(tmp_medium$`T/NK_cells`>=pct_thresh,
+                "Immune",
+                "None")
+         )
+
+print(table(tmp_medium$tumor.immune.spots))
+
+feature_overlay_discrete(tmp_medium, "tumor.immune.spots", pt.size = base_pt_size*1.5) &
+  theme(legend.key.width = unit(0.8, "lines"), 
+        legend.key.height = unit(3., "lines")) &
+  scale_fill_manual(values = c(Both = "yellow", None = "black", Immune = "green", Tumor = "red"), name = paste0("Types exceeding ", sprintf("%2.0d", pct_thresh*100), "%")) & ggtitle(NULL, subtitle = NULL)
+```
+
+### Melanoma/Immune  (>10%)
+
+```{r, echo=F, results=T, eval=T}
+# percentage deconvolution treshold for assigning spots as positive
+pct_thresh = 0.1
+
+tmp_medium[["tumor.immune.spots"]] =
+  ifelse(tmp_medium$Melanocytic_cells>=pct_thresh,
+         ifelse(tmp_medium$`T/NK_cells`>=pct_thresh,
+                "Both",
+                "Tumor"),
+         ifelse(tmp_medium$`T/NK_cells`>=pct_thresh,
+                "Immune",
+                "None")
+         )
+
+print(table(tmp_medium$tumor.immune.spots))
+
+feature_overlay_discrete(tmp_medium, "tumor.immune.spots", pt.size = base_pt_size*1.5) &
+  theme(legend.key.width = unit(0.8, "lines"), 
+        legend.key.height = unit(3., "lines")) &
+  scale_fill_manual(values = c(Both = "yellow", None = "black", Immune = "green", Tumor = "red"), name = paste0("Types exceeding ", sprintf("%2.0d", pct_thresh*100), "%")) & ggtitle(NULL, subtitle = NULL)
+```
+
+### Melanoma/Immune  (>20%)
+
+```{r, echo=F, results=T, eval=T}
+# percentage deconvolution treshold for assigning spots as positive
+pct_thresh = 0.2
+
+tmp_medium[["tumor.immune.spots"]] =
+  ifelse(tmp_medium$Melanocytic_cells>=pct_thresh,
+         ifelse(tmp_medium$`T/NK_cells`>=pct_thresh,
+                "Both",
+                "Tumor"),
+         ifelse(tmp_medium$`T/NK_cells`>=pct_thresh,
+                "Immune",
+                "None")
+         )
+
+print(table(tmp_medium$tumor.immune.spots))
+
+feature_overlay_discrete(tmp_medium, "tumor.immune.spots", pt.size = base_pt_size*1.5) &
+  theme(legend.key.width = unit(0.8, "lines"), 
+        legend.key.height = unit(3., "lines")) &
+  scale_fill_manual(values = c(Both = "yellow", None = "black", Immune = "green", Tumor = "red"), name = paste0("Types exceeding ", sprintf("%2.0d", pct_thresh*100), "%")) & ggtitle(NULL, subtitle = NULL)
+```
+
+## Fine Summed {.tabset}
+
+Black spots have an estimated proportion <= 1%.
+Missing spots were not deconvolved (mostly due to too few counts present). 
+
+Proportions of subtypes were summed together here.
+
+```{r CARD_fine_summed, echo=FALSE, results='asis'}
+sum_types_list = lapply(setNames(nm=unique(celltype_collapsing$sum_type)), function(ct){
+  unique(celltype_collapsing[celltype_collapsing$sum_type==ct,]$celltype)
+})
+prop_summed = tibble(!!!lapply(sum_types_list, function(cts){
+  if (length(cts)>1) 
+  {
+    rowSums(CARD_obj_fine@Proportion_CARD[,cts])
+  } else {
+    CARD_obj_fine@Proportion_CARD[,cts]
+  }
+})) %>% as.data.frame()
+rownames(prop_summed) = rownames(CARD_obj_fine@Proportion_CARD)
+
+# remove cells that were not deconvolved due to too little genes present, 
+# because visualization functions complain otherwise
+tmp_fine = se %>% 
+  SubsetSTData(spots = rownames(prop_summed)) %>%
+  AddMetaData(prop_summed)
+  
+res <- lapply(sort(colnames(prop_summed)), function(celltype) {
+  scalemax = max(0.3, max(prop_summed[,celltype])+0.01)  
+  knitr::knit_child(text = c(
+    '',
+    '### `r paste(celltype)`',
+    '',
+    '```{r, echo=F, results=T, eval=T}',
+    '',
+    'feature_overlay(tmp_fine, celltype, limits = c(0.01, scalemax), scalename = "Cell Type Proportion", pt.size = base_pt_size*1.5) + theme(legend.key.width = unit(0.8, "lines"), legend.key.height = unit(3., "lines"))',
+    '',
+    '```',
+    ''
+  ), envir = environment(), quiet = T)
+})
+cat(unlist(res), sep = '\n\n')
+```
+
+### Melanoma/Immune  (>5%)
+
+```{r, echo=F, results=T, eval=T}
+# percentage deconvolution treshold for assigning spots as positive
+pct_thresh = 0.05
+
+tmp_fine[["tumor.immune.spots"]] =
+  ifelse(tmp_fine$Melanocytic_cells>=pct_thresh,
+         ifelse(tmp_fine$`T/NK_cells`>=pct_thresh,
+                "Both",
+                "Tumor"),
+         ifelse(tmp_fine$`T/NK_cells`>=pct_thresh,
+                "Immune",
+                "None")
+         )
+
+print(table(tmp_fine$tumor.immune.spots))
+
+feature_overlay_discrete(tmp_fine, "tumor.immune.spots", pt.size = base_pt_size*1.5) &
+  theme(legend.key.width = unit(0.8, "lines"), 
+        legend.key.height = unit(3., "lines")) &
+  scale_fill_manual(values = c(Both = "yellow", None = "black", Immune = "green", Tumor = "red"), name = paste0("Types exceeding ", sprintf("%2.0d", pct_thresh*100), "%")) & ggtitle(NULL, subtitle = NULL)
+```
+
+### Melanoma/Immune  (>10%)
+
+```{r, echo=F, results=T, eval=T}
+# percentage deconvolution treshold for assigning spots as positive
+pct_thresh = 0.1
+
+tmp_fine[["tumor.immune.spots"]] =
+  ifelse(tmp_fine$Melanocytic_cells>=pct_thresh,
+         ifelse(tmp_fine$`T/NK_cells`>=pct_thresh,
+                "Both",
+                "Tumor"),
+         ifelse(tmp_fine$`T/NK_cells`>=pct_thresh,
+                "Immune",
+                "None")
+         )
+
+print(table(tmp_fine$tumor.immune.spots))
+
+feature_overlay_discrete(tmp_fine, "tumor.immune.spots", pt.size = base_pt_size*1.5) &
+  theme(legend.key.width = unit(0.8, "lines"), 
+        legend.key.height = unit(3., "lines")) &
+  scale_fill_manual(values = c(Both = "yellow", None = "black", Immune = "green", Tumor = "red"), name = paste0("Types exceeding ", sprintf("%2.0d", pct_thresh*100), "%")) & ggtitle(NULL, subtitle = NULL)
+```
+
+### Melanoma/Immune  (>20%)
+
+```{r, echo=F, results=T, eval=T}
+# percentage deconvolution treshold for assigning spots as positive
+pct_thresh = 0.2
+
+tmp_fine[["tumor.immune.spots"]] =
+  ifelse(tmp_fine$Melanocytic_cells>=pct_thresh,
+         ifelse(tmp_fine$`T/NK_cells`>=pct_thresh,
+                "Both",
+                "Tumor"),
+         ifelse(tmp_fine$`T/NK_cells`>=pct_thresh,
+                "Immune",
+                "None")
+         )
+
+print(table(tmp_fine$tumor.immune.spots))
+
+feature_overlay_discrete(tmp_fine, "tumor.immune.spots", pt.size = base_pt_size*1.5) &
+  theme(legend.key.width = unit(0.8, "lines"), 
+        legend.key.height = unit(3., "lines")) &
+  scale_fill_manual(values = c(Both = "yellow", None = "black", Immune = "green", Tumor = "red"), name = paste0("Types exceeding ", sprintf("%2.0d", pct_thresh*100), "%")) & ggtitle(NULL, subtitle = NULL)
+```
+
+
+
+
+
+
+
+
+
+# RCTD Deconvolution {.tabset .tabset-pills}
+
+The following results are generated with the same reference but using the RCTD package in multi-mode (maximum 4 celltypes per spot).
+
+## Medium {.tabset}
+
+Black spots have an estimated proportion <= 1%.
+Missing spots were not deconvolved (mostly due to too few counts present). 
+
+```{r RCTD_medium, echo=FALSE, results='asis'}
+# sanity check
+if (ncol(RCTD_obj_medium@spatialRNA@counts) != length(RCTD_obj_medium@results)) {stop("RCTD object is broken, mismatch between spot names and number of results.")}
+
+RCTD_medium_res_df = do.call(rbind, lapply(RCTD_obj_medium@results, function(spotres){
+  ret = setNames(rep(0., length(names(spotres$all_weights))), nm = names(spotres$all_weights))
+  ret[spotres$cell_type_list] = spotres$sub_weights
+  ret
+}))
+rownames(RCTD_medium_res_df) = colnames(RCTD_obj_medium@spatialRNA@counts)
+
+
+# remove cells that were not deconvolved due to too little genes present, 
+# because visualization functions complain otherwise
+
+tmp_medium_RCTD = se %>% 
+  SubsetSTData(spots = names(RCTD_obj_medium@spatialRNA@nUMI)) %>%
+  AddMetaData(RCTD_medium_res_df)
+  
+res <- lapply(sort(colnames(RCTD_medium_res_df)), function(celltype) {
+  scalemax = max(0.3, max(RCTD_medium_res_df[,celltype])+0.01)  
+  knitr::knit_child(text = c(
+    '',
+    '### `r paste(celltype)`',
+    '',
+    '```{r, echo=F, results=T, eval=T}',
+    '',
+    'feature_overlay(tmp_medium_RCTD, celltype, limits = c(0.01, scalemax), scalename = "Cell Type Proportion", pt.size = base_pt_size*1.5) + theme(legend.key.width = unit(0.8, "lines"), legend.key.height = unit(3., "lines"))',
+    '',
+    '```',
+    ''
+  ), envir = environment(), quiet = T)
+})
+cat(unlist(res), sep = '\n\n')
+```
+
+## Medium Summed {.tabset}
+
+Black spots have an estimated proportion <= 1%.
+Missing spots were not deconvolved (mostly due to too few counts present). 
+
+Proportions of subtypes were summed together here.
+
+```{r RCTD_medium_summed, echo=FALSE, results='asis'}
+sum_types_list = lapply(setNames(nm=unique(celltype_collapsing$sum_type)), function(ct){
+  intersect(unique(celltype_collapsing[celltype_collapsing$sum_type==ct,]$celltype_medium), levels(RCTD_obj_medium@reference@cell_types))
+})
+prop_summed = tibble(!!!lapply(sum_types_list, function(cts){
+  if (length(cts)>1) 
+  {
+    rowSums(RCTD_medium_res_df[,cts])
+  } else {
+    RCTD_medium_res_df[,cts]
+  }
+})) %>% as.data.frame()
+rownames(prop_summed) = rownames(RCTD_medium_res_df)
+
+# remove cells that were not deconvolved due to too little genes present, 
+# because visualization functions complain otherwise
+tmp_medium_summed = se %>% 
+  SubsetSTData(spots = rownames(prop_summed)) %>%
+  AddMetaData(prop_summed)
+  
+res <- lapply(sort(colnames(prop_summed)), function(celltype) {
+  scalemax = max(0.3, max(prop_summed[,celltype])+0.01)  
+  knitr::knit_child(text = c(
+    '',
+    '### `r paste(celltype)`',
+    '',
+    '```{r, echo=F, results=T, eval=T}',
+    '',
+    'feature_overlay(tmp_medium_summed, celltype, limits = c(0.01, scalemax), scalename = "Cell Type Proportion", pt.size = base_pt_size*1.5) + theme(legend.key.width = unit(0.8, "lines"), legend.key.height = unit(3., "lines"))',
+    '',
+    '```',
+    ''
+  ), envir = environment(), quiet = T)
+})
+cat(unlist(res), sep = '\n\n')
+```
+
+### Melanoma/Immune  (>5%)
+
+```{r, echo=F, results=T, eval=T}
+# percentage deconvolution treshold for assigning spots as positive
+pct_thresh = 0.05
+
+tmp_medium_summed[["tumor.immune.spots"]] =
+  ifelse(tmp_medium_summed$Melanocytic_cells>=pct_thresh,
+         ifelse(tmp_medium_summed$`T/NK_cells`>=pct_thresh,
+                "Both",
+                "Tumor"),
+         ifelse(tmp_medium_summed$`T/NK_cells`>=pct_thresh,
+                "Immune",
+                "None")
+         )
+
+print(table(tmp_medium_summed$tumor.immune.spots))
+
+feature_overlay_discrete(tmp_medium_summed, "tumor.immune.spots", pt.size = base_pt_size*1.5) &
+  theme(legend.key.width = unit(0.8, "lines"), 
+        legend.key.height = unit(3., "lines")) &
+  scale_fill_manual(values = c(Both = "yellow", None = "black", Immune = "green", Tumor = "red"), name = paste0("Types exceeding ", sprintf("%2.0d", pct_thresh*100), "%")) & ggtitle(NULL, subtitle = NULL)
+```
+
+### Melanoma/Immune  (>10%)
+
+```{r, echo=F, results=T, eval=T}
+# percentage deconvolution treshold for assigning spots as positive
+pct_thresh = 0.1
+
+tmp_medium_summed[["tumor.immune.spots"]] =
+  ifelse(tmp_medium_summed$Melanocytic_cells>=pct_thresh,
+         ifelse(tmp_medium_summed$`T/NK_cells`>=pct_thresh,
+                "Both",
+                "Tumor"),
+         ifelse(tmp_medium_summed$`T/NK_cells`>=pct_thresh,
+                "Immune",
+                "None")
+         )
+
+print(table(tmp_medium_summed$tumor.immune.spots))
+
+feature_overlay_discrete(tmp_medium_summed, "tumor.immune.spots", pt.size = base_pt_size*1.5) &
+  theme(legend.key.width = unit(0.8, "lines"), 
+        legend.key.height = unit(3., "lines")) &
+  scale_fill_manual(values = c(Both = "yellow", None = "black", Immune = "green", Tumor = "red"), name = paste0("Types exceeding ", sprintf("%2.0d", pct_thresh*100), "%")) & ggtitle(NULL, subtitle = NULL)
+```
+
+### Melanoma/Immune  (>20%)
+
+```{r, echo=F, results=T, eval=T}
+# percentage deconvolution treshold for assigning spots as positive
+pct_thresh = 0.2
+
+tmp_medium_summed[["tumor.immune.spots"]] =
+  ifelse(tmp_medium_summed$Melanocytic_cells>=pct_thresh,
+         ifelse(tmp_medium_summed$`T/NK_cells`>=pct_thresh,
+                "Both",
+                "Tumor"),
+         ifelse(tmp_medium_summed$`T/NK_cells`>=pct_thresh,
+                "Immune",
+                "None")
+         )
+
+print(table(tmp_medium_summed$tumor.immune.spots))
+
+feature_overlay_discrete(tmp_medium_summed, "tumor.immune.spots", pt.size = base_pt_size*1.5) &
+  theme(legend.key.width = unit(0.8, "lines"), 
+        legend.key.height = unit(3., "lines")) &
+  scale_fill_manual(values = c(Both = "yellow", None = "black", Immune = "green", Tumor = "red"), name = paste0("Types exceeding ", sprintf("%2.0d", pct_thresh*100), "%")) & ggtitle(NULL, subtitle = NULL)
+```

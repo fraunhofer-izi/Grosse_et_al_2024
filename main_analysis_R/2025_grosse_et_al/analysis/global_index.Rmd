@@ -1,0 +1,110 @@
+---
+title: "UCCL Melanoma 10X Visium Project - Part 2"
+site: workflowr::wflow_site
+output:
+  workflowr::wflow_html:
+    toc: false
+workflowr:
+  suppress_report: TRUE
+editor_options: 
+  chunk_output_type: console
+---
+
+Author: Florian Große, Michael Rade (Last updated: `r Sys.Date()`)
+
+```{r libs-and-functions, echo = F, message = FALSE, warning=FALSE}
+library("yaml")
+library("readr")
+library("kableExtra")
+```
+
+# Available samples
+
+```{r good-samples, results='asis', echo = FALSE}
+manifest = yaml.load_file("./assets/manifest.yaml")
+all_samples = setdiff(manifest$samples, manifest$rejected_samples)
+# optional: custom ordering for nicer list
+# all_samples = c(sort(all_samples[startsWith(all_samples, "P")]), sort(all_samples[!startsWith(all_samples, "P")]))
+
+has_rejected_samples = length(manifest$rejected_samples)>0 
+has_external_samples = length(manifest$external_samples)>0 
+
+for (sample in all_samples){
+  sample_full_name = manifest[[sample]]$full_name
+  cat("* [Sample: ", sample_full_name, "](./", sample, "/index.html)", "\n", sep = "")
+}
+cat("\n\n")
+```
+
+```{r rejected-samples, results='asis', echo = FALSE, eval=has_rejected_samples}
+cat("\n# Rejected samples with only basic analysis steps present\n\n")
+rejected_samples = manifest$rejected_samples
+for (sample in rejected_samples){
+  sample_full_name = manifest[[sample]]$full_name
+  cat("* [Sample: ", sample_full_name, "](./", sample, "/index.html)", "\n", sep = "")
+}
+cat("\n\n")
+```
+
+```{r external-samples, results='asis', echo = FALSE, eval=has_external_samples}
+cat("\n# Samples imported from external, previously published datasets\n\n")
+external_samples = manifest$external_samples
+for (sample in external_samples){
+  sample_full_name = manifest[[sample]]$full_name
+  cat("* [Sample: ", sample_full_name, "](./", sample, "/index.html)", "\n", sep = "")
+}
+cat("\n\n")
+```
+
+
+# Analyses Spanning Multiple Samples
+
+* [Aggregation of LRI Analysis](10_global_02_aggregated_LRI.html)
+* [Basic stats for this papers samples](11_global_03_basic_spot_stats.html)
+* [TCIA Survival analyses](14_global_04_TCGA_survival.html)
+
+# Collected Plots for the Paper
+
+* [Visium non-HD and Survival](15_paper_plots_merged.html)
+* [Visium HD Plots](16_HD_plots.html)
+
+# Notes
+
+```{r loadnotes, results='hide', echo = FALSE, eval=file.exists("./assets/global_notes.csv")}
+# removed, since they contained internal identifiers and potentially sensitive data
+gn = read_csv("./assets/global_notes.csv", show_col_types = F)
+```
+
+```{r shownotes, results='markup', echo = FALSE, eval=file.exists("./assets/global_notes.csv")}
+kable_styling(kbl(gn), full_width = T)
+```
+
+
+The In-/Output paths for all files used/produced in this analysis are stored in "manifest.yaml" (assets/manifest.yaml). 
+Additionally, all major sample-specific settings are in the manifest as well.
+
+HTML sites were compiled using [workflowr](https://github.com/jdblischak/workflowr).
+
+# Labbook structure
+
+```
+2025-UCCL-Melanom-Spatial-Comparisons/
+├── analysis/               <---------- R Markdown files
+├── assets/                 <---------- Manifest and misc. files that are synchronized
+│   ├── annotations/        <---------- Histological annotations for each sample from the Loupe browser
+│   ├── manifest.yaml
+│   └── ...
+├── data                    <---------- Caches for various downloaded datasets etc., not synchronized
+├── code/                   <---------- R scripts to process the data
+├── public/                 <---------- Unused, see README
+├── .gitlab-ci.yml
+├── _workflowr.yml
+├── README.md
+├── renv/                   <---------= Dependency version control
+├── renv.lock               <--------/ 
+├── .gitignore
+├── .gitattributes
+├── 2025-UCCL-Melanom-Spatial-Comparisons.Rproj
+├── .Rprofile
+└── Interactive_analysis.R  <---------- Read this if you want to redo the analysis
+```

@@ -1,6 +1,8 @@
-# Grosse_et_al_2024
+# Grosse_et_al_2026
 
-This repository contains code used to produce the results in: Florian Große et al. Spatial transcriptomics of melanoma tissues reveals new tumor– immune cell interactions in humans. (not released yet)
+This repository contains code used to produce the results in: Florian Große et al. "Decoding melanoma-immune cell communication through spatially resolved ligand-receptor interaction analyses" (not released yet)
+
+While all of the analysis of low-resolution Visium samples was conducted in R, most of the preprocessing of Visium HD samples happened in Python, so there are subprojects for both parts. Please see the READMEs of those subprojects for further usage instructions.
 
 # Singularity
 

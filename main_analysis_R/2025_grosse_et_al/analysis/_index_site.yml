@@ -1,0 +1,16 @@
+name: 2021-UCCL-Melanom-Kunz-SpatialSeq
+output_dir: ../public
+navbar:
+  title: '<img id="logo" style="width: 100px;margin-top: -6px" src="../assets/fhglogoizi.gif"
+    />'
+  left:
+  - text: Switch to a Different Sample
+    href: ../index.html
+  right:
+  - icon: fa-gitlab
+    text: Source code
+    href: https://ribogit.izi.fraunhofer.de/florian.peter.grosse/2025-uccl-melanom-spatial-comparisons
+output:
+  workflowr::wflow_html:
+    css: style.css
+    highlight: default
