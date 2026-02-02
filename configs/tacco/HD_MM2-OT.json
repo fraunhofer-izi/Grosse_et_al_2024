@@ -1,0 +1,17 @@
+{
+    "LE-773-SK": {
+        "anndata_files": {
+            "hema": "/mnt/ribolution/tertiary_analysis/2024-kunz-melanom-visium-hd/bin2cell/LE-773-SK-hema/h5-files/adata-post-b2c.h5ad",
+            "original": "/mnt/ribolution/tertiary_analysis/2024-kunz-melanom-visium-hd/bin2cell/LE-773-SK-original/h5-files/adata-post-b2c.h5ad"
+        },
+        "single_cell_reference": {
+            "h5ad_file": "/mnt/ribolution/tertiary_analysis/2024-kunz-melanom-visium-hd/celltype_annotation/single_cell_reference/Stubenvoll_2025_melanoma_single_cell_reference.h5ad",
+            "annotation_key": ["celltype_medium", "celltype_broad"]
+        },
+        "tacco": {
+            "method": ["OT"]
+        },
+        "conda_env": "/homes/olymp/christoph.kaempf/.conda/envs/2024-kunz-spatial-r440",
+        "output_dir": "/mnt/ribolution/tertiary_analysis/2024-kunz-melanom-visium-hd/tacco/LE-773-SK"
+    }
+}
