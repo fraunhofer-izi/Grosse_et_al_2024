@@ -1,0 +1,15 @@
+{
+    "HD_MM1-OT": {
+        "anndata_files": {
+            "hema": "../../data/output/bin2cell/HD_PM1/h5-files/adata-post-b2c.h5ad"            
+        },
+        "single_cell_reference": {
+            "h5ad_file": "../../data/output/single_cell_reference/Stubenvoll_2025_melanoma_single_cell_reference.h5ad",
+            "annotation_key": ["celltype_medium", "celltype_broad"]
+        },
+        "tacco": {
+            "method": ["OT"]
+        },
+        "output_dir": "../../data/output/tacco/HD_MM1-OT"
+    }
+}
