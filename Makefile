@@ -4,7 +4,7 @@ conda_env_create: environment.yml
 	conda env create -f environment.yml
 
 conda_env_export:
-	conda env export > environment.yml
+	conda env export | head -n -1 > environment.yml
 
 00_download_data: scripts/download_data/Makefile
 	$(MAKE) -C scripts/download_data download_data
@@ -19,7 +19,7 @@ conda_env_export:
 	$(MAKE) -C scripts/bin2cell bin2cell
 
 03_tacco: scripts/tacco/Makefile
-	$(MAKE) -C scripts/tacco tacco
+	$(MAKE) -C scripts/tacco tacco-annotate-OT
 
 04_rotate_sample: scripts/rotate_sample/Makefile
 	$(MAKE) -C scripts/rotate_sample rotate-sample
