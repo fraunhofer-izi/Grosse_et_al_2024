@@ -204,7 +204,6 @@ def main():
             labels_npz_path=he_labels_npz,
             stardist_model="2D_versatile_he",
         )
-        exp_lbl_he = scipy.sparse.load_npz(he_labels_npz)
         # Insert segmentation labels created by stardist
         he_label_key = "labels_he"
         insert_labels_from_npz(
@@ -216,22 +215,23 @@ def main():
         # Generate a TIFF image from the expresssion data
         generate_gex_image(adata=adata, mpp=mpp, save_path=gex_tiff)
         # Apply stardist to 'fluorescence' image created from expression data
-        adata, exp_lbl_gex = apply_stardist(
+        #adata, exp_lbl_gex = apply_stardist(
+        apply_stardist(
             image_path=gex_tiff,
             labels_npz_path=gex_labels_npz,
             stardist_model="2D_versatile_fluo",
         )
-
         gex_label_key = "labels_gex"
+        # Insert segmentation labels created by stardist
         insert_labels_from_npz(
-            adata=adata, labels_key=gex_label_key, labels_npz_path=gex_labels_npz
+            adata=adata, labels_key=gex_label_key, labels_npz_path=gex_labels_npz, mpp=mpp
         )
         expand_labels(adata=adata, labels_key=gex_label_key)
 
         adata = combine_labels(
             adata=adata,
-            primary_labels=exp_lbl_he,
-            secondary_labels=exp_lbl_gex,
+            primary_labels=he_label_key,
+            secondary_labels=gex_label_key,
             joint_labels="labels_joint",
         )
 
