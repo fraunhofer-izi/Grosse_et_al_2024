@@ -1,0 +1,58 @@
+{
+    "HD_PM1": {
+        "anndata_files": {
+            "hema": "../../data/output/tacco/HD_PM1/tacco-annotate-OT-HD_PM1-hema.h5ad"
+        },
+        "output_dir": "../../data/output/tacco/HD_PM1",
+        "image_id": "538-4",
+        "rotation_angle": "-90"
+    },
+    "HD_PM2": {
+        "anndata_files": {
+            "hema": "../../data/output/tacco/HD_PM2/tacco-annotate-OT-HD_PM2-hema.h5ad"
+        },
+        "output_dir": "../../data/output/tacco/HD_PM2",
+        "image_id": "846-1-6_merged",
+        "rotation_angle": "-90"
+    },
+    "HD_PM3": {
+        "anndata_files": {
+            "hema": "../../data/output/tacco/HD_PM3/tacco-annotate-OT-HD_PM3-hema.h5ad"
+        },
+        "output_dir": "../../data/output/tacco/HD_PM2",
+        "image_id": "941-4",
+        "rotation_angle": "-90"
+    },
+    "HD_PM4": {
+        "anndata_files": {
+            "hema": "../../data/output/bin2cell/HD_PM4/h5-files/adata-post-b2c.h5ad"
+        },
+        "output_dir": "../../data/output/tacco/HD_PM4",
+        "image_id": "942-4",
+        "rotation_angle": "-90"
+    },
+    "HD_MM1": {
+        "anndata_files": {
+            "hema": "../../data/output/tacco/HD_MM1/tacco-annotate-OT-HD_MM1-hema.h5ad"
+        },
+        "output_dir": "../../data/output/tacco/HD_MM1",
+        "image_id": "LE-713-SI",
+        "rotation_angle": "90"
+    },
+    "HD_MM2": {
+        "anndata_files": {
+            "hema": "../../data/output/tacco/HD_MM2/tacco-annotate-OT-HD_MM2-hema.h5ad"
+        },
+        "output_dir": "../../data/output/tacco/HD_MM2",
+        "image_id": "LE-773-SK",
+        "rotation_angle": "-90"
+    },
+    "HD_MM3": {
+        "anndata_files": {
+            "hema": "../../data/output/tacco/HD_MM3/tacco-annotate-OT-HD_MM3-hema.h5ad"
+        },
+        "output_dir": "../../data/output/tacco/HD_MM3",
+        "image_id": "LE-781-KHJ",
+        "rotation_angle": "90"
+    }
+}
