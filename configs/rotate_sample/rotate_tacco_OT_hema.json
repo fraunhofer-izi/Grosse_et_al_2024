@@ -19,7 +19,7 @@
         "anndata_files": {
             "hema": "../../data/output/tacco/HD_PM3/tacco-annotate-OT-HD_PM3-hema.h5ad"
         },
-        "output_dir": "../../data/output/tacco/HD_PM2",
+        "output_dir": "../../data/output/tacco/HD_PM3",
         "image_id": "941-4",
         "rotation_angle": "-90"
     },
