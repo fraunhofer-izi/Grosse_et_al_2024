@@ -18,12 +18,19 @@ Please refer to the [specific README file for the Visium analysis](main_analysis
 
 The analysis of the higher resolution Visium HD samples was conducted both in Python and R.
 
-
+0. Generate single cell reference (using [`generate_sc_reference.py`](scripts/generate_sc_reference/generate_sc_reference.py))
 1. Stain deconvolution (using [`stain_deconvolution.py`](scripts/stain_deconvolution/stain_deconvolution.py))
 2. Segmentation (using [`bin2cell-workflow.py`](scripts/bin2cell/bin2cell-workflow.py))
-3. Generate single cell reference (using [`generate_sc_reference.py`](scripts/generate_sc_reference/generate_sc_reference.py))
 3. Cell type annotation (using [`tacco-annotate.py`](scripts/tacco/tacco-annotate.py))
 4. Rotate image data (using [`rotate-sample.py`](scripts/rotate_sample/rotate-sample.py))
+
+To run these steps in order (after you re-created the conda environment (see section "Reproduction" below)):
+
+```bash
+make run_analysis
+```
+
+
 
 ## Coding Guidelines
 
@@ -43,3 +50,4 @@ This environemnt can be restored by:
 ```bash
 $ make conda_env_create
 ```
+

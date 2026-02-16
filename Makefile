@@ -1,10 +1,12 @@
-PHONY: conda_env_create conda_env_export 00_download_data 00_generate_sc_reference 01_stain_deconvolution 02_bin2cell 03_tacco 04_rotate_sample
+PHONY: conda_env_create conda_env_export run_analysis 00_download_data 00_generate_sc_reference 01_stain_deconvolution 02_bin2cell 03_tacco 04_rotate_sample
 
 conda_env_create: environment.yml
 	conda env create -f environment.yml
 
 conda_env_export:
 	conda env export | head -n -1 > environment.yml
+
+run_analysis: 00_download_data 00_generate_sc_reference 01_stain_deconvolution 02_bin2cell 03_tacco 04_rotate_sample
 
 00_download_data: scripts/download_data/Makefile
 	$(MAKE) -C scripts/download_data download_data
